@@ -11,6 +11,7 @@
 
 import { getItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate } from './utils/router.js';
+import { initTheme } from './services/theme-service.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
 import { renderGreetingScreen } from './components/greeting-screen.js';
 import { renderHomeScreen } from './components/home-screen.js';
@@ -23,6 +24,7 @@ function boot() {
   registerRoute('greeting', renderGreetingScreen);
   registerRoute('home', renderHomeScreen);
 
+  initTheme(); // confirms/corrects the inline pre-paint guess and wires up system-theme listening
   determineStartRoute().then((route) => navigate(route));
 
   registerServiceWorker();
