@@ -10,6 +10,9 @@ import { getTimeOfDayLabel, getTimeOfDayEmoji } from '../utils/time-of-day.js';
 import { toggleTheme, getThemeMode } from '../services/theme-service.js';
 import { importFiles } from '../services/import-service.js';
 import { getAllSongs } from '../services/library-service.js';
+import { subscribe, loadQueue, togglePlay } from '../services/player-service.js';
+import { getArtworkUrl } from '../services/artwork-service.js';
+import { navigate } from '../utils/router.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums' },
@@ -173,6 +176,62 @@ export async function renderHomeScreen() {
       alert(`The "${btn.textContent.trim()}" screen is coming in a future build pass.`);
     });
   });
+
+  // ---------- Tap a song card to start playing it ----------
+  const recentSongs = songs.slice(0, 10);
+  el.querySelectorAll('.media-card[data-id]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const songIndex = recentSongs.findIndex((s) => s.id === card.dataset.id);
+      if (songIndex === -1) return;
+      loadQueue(recentSongs, songIndex);
+      navigate('player');
+    });
+  });
+
+  // Fill in real embedded artwork for recent cards once resolved, without
+  // blocking the initial render (placeholder shows immediately).
+  recentSongs.forEach((song) => {
+    const card = el.querySelector(`.media-card[data-id="${song.id}"] .art`);
+    if (!card) return;
+    getArtworkUrl(song).then((url) => {
+      if (!url || url.startsWith('data:image/svg+xml')) return; // keep the crisp inline placeholder
+      card.innerHTML = `<img src="${url}" alt="" />`;
+    });
+  });
+
+  // ---------- Mini player: reflects live playback state ----------
+  const miniPlayer = el.querySelector('#mini-player');
+  const miniArtImg = miniPlayer.querySelector('.art img');
+  const miniTitle = miniPlayer.querySelector('.info .title');
+  const miniArtist = miniPlayer.querySelector('.info .artist');
+  const miniPlayPauseBtn = miniPlayer.querySelector('.controls button');
+
+  const unsubscribe = subscribe((state) => {
+    if (!state.currentSong) {
+      miniPlayer.hidden = true;
+      return;
+    }
+    miniPlayer.hidden = false;
+    miniArtImg.src = state.artUrl;
+    miniTitle.textContent = state.currentSong.title;
+    miniArtist.textContent = state.currentSong.artist;
+    miniPlayPauseBtn.textContent = state.isPlaying ? '⏸' : '▶';
+    miniPlayPauseBtn.setAttribute('aria-label', state.isPlaying ? 'Pause' : 'Play');
+  });
+
+  // Any tap on the mini player (except its own control button) opens Now Playing.
+  miniPlayer.addEventListener('click', (e) => {
+    if (e.target === miniPlayPauseBtn) return;
+    navigate('player');
+  });
+  miniPlayPauseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePlay();
+  });
+
+  // Unsubscribe when this screen is navigated away from, so state updates
+  // don't keep firing against a detached DOM tree.
+  el._onLeave = unsubscribe;
 
   return el;
 }
