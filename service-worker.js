@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v2';
+const CACHE_NAME = 'melody-shell-v3'; // bumped: v2 could have cached the broken theme-service.js import path
 
 const APP_SHELL = [
   './',
