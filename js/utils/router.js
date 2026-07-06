@@ -23,6 +23,27 @@ export async function navigate(name, params = {}) {
   const renderFn = routes.get(name);
   if (!renderFn) throw new Error(`No route registered for "${name}"`);
 
+  // Entering/leaving the full player gets a fluid morph-style transition
+  // (mini player <-> full player) via the View Transitions API when the
+  // browser supports it; every other navigation keeps the plain fade.
+  const isPlayerTransition = name === 'player' || currentName === 'player';
+  const canUseViewTransition = isPlayerTransition && typeof document.startViewTransition === 'function';
+
+  if (canUseViewTransition) {
+    const outgoing = rootEl.firstElementChild;
+    if (outgoing?._onLeave) {
+      try { outgoing._onLeave(); } catch (err) { console.error('[Melody] Screen cleanup threw:', err); }
+    }
+    const transition = document.startViewTransition(async () => {
+      rootEl.innerHTML = '';
+      const view = await renderFn(params);
+      rootEl.appendChild(view);
+      currentName = name;
+    });
+    await transition.finished.catch(() => {});
+    return;
+  }
+
   // Give the outgoing screen a chance to clean up (e.g. unsubscribe from
   // player-service) before its DOM is discarded. A screen opts in by
   // setting `element._onLeave = fn` when it renders.
