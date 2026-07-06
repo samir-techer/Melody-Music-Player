@@ -21,11 +21,31 @@ const LIBRARY_LINKS = [
 ];
 
 export async function renderHomeScreen() {
-  const nickname = (await getItem('nickname')) || 'friend';
+  let nickname = 'friend';
+  try {
+    nickname = (await getItem('nickname')) || 'friend';
+  } catch (err) {
+    console.error('[Melody] Home: failed to load nickname — using default.', err);
+  }
+
   const timeLabel = getTimeOfDayLabel();
   const emoji = getTimeOfDayEmoji();
-  const currentThemeMode = await getThemeMode();
-  const songs = await getAllSongs();
+
+  let currentThemeMode = 'system';
+  try {
+    currentThemeMode = await getThemeMode();
+  } catch (err) {
+    console.error('[Melody] Home: failed to load theme mode — using default.', err);
+  }
+
+  let songs = [];
+  try {
+    songs = await getAllSongs();
+    console.log(`[Melody] Library loaded (${songs.length} song${songs.length === 1 ? '' : 's'})`);
+  } catch (err) {
+    console.error('[Melody] Home: failed to load library — rendering with an empty library instead of blocking.', err);
+    songs = [];
+  }
 
   const el = document.createElement('div');
   el.className = 'screen home-screen';
