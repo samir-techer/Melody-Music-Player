@@ -16,6 +16,21 @@
 
   <link rel="icon" href="./assets/icons/favicon.png" type="image/png" />
 
+  <!-- Applies the saved theme before first paint so there's no flash of
+       the wrong appearance. theme-service.js takes over after boot and
+       is the source of truth from then on (this is just a fast mirror). -->
+  <script>
+    (function () {
+      try {
+        var mode = localStorage.getItem('melody-theme-sync') || 'system';
+        var resolved = mode === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : mode;
+        document.documentElement.setAttribute('data-theme', resolved);
+      } catch (e) { /* default light theme applies via CSS if this fails */ }
+    })();
+  </script>
+
   <!-- Design system -->
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/base.css" />

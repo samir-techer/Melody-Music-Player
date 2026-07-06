@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v1';
+const CACHE_NAME = 'melody-shell-v2';
 
 const APP_SHELL = [
   './',
@@ -17,10 +17,14 @@ const APP_SHELL = [
   './css/onboarding.css',
   './css/home.css',
   './js/app.js',
+  './js/utils/db.js',
   './js/utils/storage.js',
   './js/utils/router.js',
   './js/utils/time-of-day.js',
   './js/utils/filename-cleaner.js',
+  './js/services/theme-service.js',
+  './js/services/import-service.js',
+  './js/services/library-service.js',
   './js/components/nickname-screen.js',
   './js/components/greeting-screen.js',
   './js/components/home-screen.js',

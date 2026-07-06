@@ -10,17 +10,35 @@ This is **Build Pass 1** of an incremental build. It includes the project skelet
 - ✅ Design system: colors, type scale, spacing, radius, shadow, motion — all as CSS custom properties in `css/tokens.css`
 - ✅ First-launch nickname capture (no login, stored locally via IndexedDB)
 - ✅ One-time full-screen greeting (never shown again after first "Start Listening")
-- ✅ Home screen shell: dynamic time-of-day greeting, search bar, section layout, bottom nav, mini player placeholder
+- ✅ Home screen: dynamic time-of-day greeting, search bar, section layout, bottom nav, mini player placeholder
+- ✅ **Music import** — tap "Import Music," pick one or more files (MP3/FLAC/M4A/AAC/WAV/OGG), and they're read, duration-checked, filename-cleaned into a Title/Artist guess, checked for likely duplicates (with a Replace/Keep Both prompt), and saved to the on-device library. Imported songs immediately appear under "Recently Added."
+- ✅ **Dark / light mode** — tap the circle icon in the top-right of Home to cycle appearance. Defaults to following the system setting, remembers your choice across launches, and applies with no flash on load.
 - ✅ PWA basics: manifest, service worker (app-shell caching), installable, offline app shell
 - ✅ Logo processed into all required icon sizes (192, 512, maskable, favicon, apple-touch-icon)
 
 ## What's next (not built yet — coming screen by screen)
 
-- Music import + filename cleaning pipeline (`js/utils/filename-cleaner.js` is stubbed and ready)
-- Metadata engine (ID3 read/write, MusicBrainz/AcoustID lookups, cover art fetching)
+- Metadata engine (ID3 read/write, MusicBrainz/AcoustID lookups, cover art fetching) — the `metadata` field on each song record is already reserved for this
 - Full player screen with vinyl animation, queue, lyrics, EQ
-- Favorites, playlists, folders, search, settings screens
+- Favorites, playlists, folders, search, and a proper Settings screen (the theme toggle will move there and gain an explicit Light/Dark/System picker)
 - Media Session API integration for lock screen / Bluetooth controls
+
+## How music import works today
+
+1. Tap **Import Music** on Home (or **＋ Import More Music** once your library isn't empty).
+2. Pick one or more audio files from your device's file picker.
+3. Each file is checked for a supported format, its duration is read, and its filename is cleaned into a Title/Artist guess (e.g. `Bruno_Mars_-505-song.mp3` → "505 — Bruno Mars").
+4. If something that looks like the same song is already in your library, you'll be asked whether to replace it or keep both.
+5. The song is saved locally (IndexedDB) — no upload, nothing leaves your device — and shows up under "Recently Added" right away.
+
+Real ID3 tag reading, MusicBrainz/cover-art lookups, and lyrics fetching are **not** in this pass yet — songs are catalogued using the cleaned filename only for now. That's the next build pass.
+
+## How dark/light mode works today
+
+- Tap the icon at the top-right of Home to cycle: System → Dark → Light → System.
+- Your choice is saved locally and re-applied instantly on every future launch (no flash of the wrong theme).
+- "System" mode watches your OS setting live — if you switch your phone's appearance while Melody is open, it updates automatically.
+- All colors are token-driven (`css/tokens.css`), so every screen you add going forward gets dark mode for free as long as it uses the existing `--color-*` variables instead of hardcoded hex values.
 
 ## Folder structure
 
