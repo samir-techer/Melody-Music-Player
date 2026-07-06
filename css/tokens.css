@@ -87,3 +87,32 @@
     --duration-slow: 0ms;
   }
 }
+
+/* ==========================================================================
+   DARK THEME
+   Applied via [data-theme="dark"] on <html>, toggled by theme-service.js.
+   Same structure as light — only the color block changes. Everything else
+   (spacing, type, radius, motion) stays identical across themes.
+   ========================================================================== */
+[data-theme="dark"] {
+  --color-bg:             #171614; /* app background */
+  --color-bg-secondary:   #221F1B; /* section backgrounds, dividers, inputs */
+  --color-card:           #221F1B; /* cards, sheets, modals */
+  --color-text-primary:   #F5F1EC; /* headings, primary copy */
+  --color-text-secondary: #9A948A; /* captions, meta, helper text */
+  --color-accent:         #F5F1EC; /* primary buttons, active states, vinyl label */
+
+  --color-accent-soft:    rgba(245, 241, 236, 0.08);
+  --color-accent-softer:  rgba(245, 241, 236, 0.04);
+  --color-divider:        rgba(245, 241, 236, 0.10);
+  --color-overlay:        rgba(0, 0, 0, 0.55);
+  --color-heart:          #E0705C; /* slightly brighter terracotta so it holds contrast on dark */
+
+  color-scheme: dark;
+}
+
+/* Buttons/text that assume dark-on-light need to flip their own foreground
+   when the accent itself becomes light in dark mode. */
+[data-theme="dark"] .btn-primary {
+  color: var(--color-bg);
+}

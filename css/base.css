@@ -24,6 +24,17 @@ body {
   overflow-x: hidden;
   overscroll-behavior-y: none;
   user-select: none; /* app-like feel; inputs re-enable below */
+  transition: background-color var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard);
+}
+
+/* Any surface using the tokens gets a soft transition too, so toggling
+   theme never feels like a jarring flash. */
+.app-shell, .screen, .home-search, .text-input, .media-card .art,
+.grid-link, .mini-player, .bottom-nav, .empty-state {
+  transition: background-color var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard),
+              border-color var(--duration-base) var(--ease-standard);
 }
 
 input, textarea {
