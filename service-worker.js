@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v3'; // bumped: v2 could have cached the broken theme-service.js import path
+const CACHE_NAME = 'melody-shell-v4'; // bumped: added core playback system
 
 const APP_SHELL = [
   './',
@@ -16,18 +16,24 @@ const APP_SHELL = [
   './css/base.css',
   './css/onboarding.css',
   './css/home.css',
+  './css/player.css',
+  './css/toast.css',
   './js/app.js',
   './js/utils/db.js',
   './js/utils/storage.js',
   './js/utils/router.js',
   './js/utils/time-of-day.js',
   './js/utils/filename-cleaner.js',
+  './js/utils/toast.js',
   './js/services/theme-service.js',
   './js/services/import-service.js',
   './js/services/library-service.js',
+  './js/services/player-service.js',
+  './js/services/artwork-service.js',
   './js/components/nickname-screen.js',
   './js/components/greeting-screen.js',
   './js/components/home-screen.js',
+  './js/components/player-screen.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
 ];
