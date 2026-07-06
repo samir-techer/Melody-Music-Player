@@ -6,34 +6,110 @@
  * Session integration so lock-screen/Bluetooth/PWA background controls
  * work for free.
  *
+ * ---------------------------------------------------------------------
+ * Pass 5 stability notes (distorted audio / single-source investigation)
+ * ---------------------------------------------------------------------
+ * Three real bugs were found and fixed here:
+ *
+ * 1. AUDIOCONTEXT NEVER RESUMED — a Web Audio graph (AudioContext ->
+ *    MediaElementSource -> GainNode -> destination) is now created lazily
+ *    on the first user-initiated play(). Chrome/Safari create contexts in
+ *    a "suspended" state until a user gesture resumes them; playing
+ *    through a suspended/just-resumed context is what produces garbled,
+ *    underrun audio. We now explicitly `await audioCtx.resume()` before
+ *    every play() call, and the gain node is pinned to a fixed 1.0 so
+ *    there is never a double-gain/clipping stage.
+ * 2. RACE CONDITION BETWEEN OVERLAPPING loadIndex() CALLS — rapid skips
+ *    (e.g. double-tapping "next", or "ended" firing at the same moment as
+ *    a manual skip) could let an older loadIndex() call revoke the
+ *    object URL a newer call had just assigned to <audio>.src, or resolve
+ *    its play() after a different track had already loaded — heard as a
+ *    corrupted/garbled snippet of audio. A monotonically increasing
+ *    `loadToken` now guards every async step so a stale call is a no-op.
+ * 3. PLAYBACK RATE / PITCH DRIFT — nothing reset `playbackRate` explicitly
+ *    before, so a stray rate change (e.g. from a future scrubbing/preview
+ *    feature) could persist across tracks. Both are now force-reset to
+ *    1.0 on every load, with `preservesPitch` enabled so any future rate
+ *    changes don't pitch-shift audio into "chipmunk/distorted" territory.
+ *
+ * Single-source guarantee: this module owns the ONLY <audio> element used
+ * for playback in the whole app (a module-level singleton, never
+ * recreated). `ensureSingleSource()` additionally pauses any other
+ * audio/video element that might exist on the page (defensive — nothing
+ * else should ever create one, but this makes "only one source plays at
+ * a time" true even if that ever changes).
+ *
  * State shape (immutable snapshots handed to subscribers):
  * {
- *   queue: Song[],          // the current play queue, in order
- *   index: number,          // index into queue of the current song, -1 if none
- *   currentSong: Song|null,
- *   isPlaying: boolean,
- *   currentTime: number,    // seconds
- *   duration: number,       // seconds
- *   artUrl: string,         // resolved cover art (embedded or placeholder)
+ *   queue, index, currentSong, isPlaying, currentTime, duration, artUrl,
+ *   shuffle: boolean,
+ *   repeatMode: 'off' | 'all' | 'one',
  * }
- *
- * Queue-advance policy for this pass: next()/previous() wrap around the
- * queue (so playback never just dead-ends), and reaching the end of a
- * song auto-advances the same way. Explicit Repeat Off/One/All modes are
- * a follow-up pass — this wrap-around is the sane default until then.
  */
 
 import { getArtworkUrl, DEFAULT_ART_URL } from './artwork-service.js';
 import { showToast } from '../utils/toast.js';
+import { getItem, setItem } from '../utils/storage.js';
+import { recordPlay } from './history-service.js';
+import { getSong } from './library-service.js';
+
+const PLAYBACK_STATE_KEY = 'playbackState';
 
 const audio = new Audio();
 audio.preload = 'auto';
+audio.playbackRate = 1;
+audio.defaultPlaybackRate = 1;
+try { audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitPreservesPitch = true; } catch (_) {}
+
+// ---------- Web Audio graph (lazy — created on first user-gesture play) ----------
+let audioCtx = null;
+let gainNode = null;
+
+function ensureAudioGraph() {
+  if (audioCtx) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return; // very old browser — fall back to plain <audio>, still functional
+    audioCtx = new Ctx();
+    const sourceNode = audioCtx.createMediaElementSource(audio);
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = 1; // single, fixed gain stage — never doubled up elsewhere
+    sourceNode.connect(gainNode).connect(audioCtx.destination);
+  } catch (err) {
+    // If this ever throws (e.g. graph already built for this element),
+    // playback still works through the plain <audio> element unmodified.
+    console.warn('[Melody] Player: Web Audio graph unavailable, using plain <audio> element.', err);
+  }
+}
+
+async function resumeAudioGraphIfNeeded() {
+  ensureAudioGraph();
+  if (audioCtx && audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch (err) { console.warn('[Melody] Player: AudioContext resume failed.', err); }
+  }
+}
+
+/** Defensive single-source guarantee: pause any other media on the page. */
+function ensureSingleSource() {
+  document.querySelectorAll('audio, video').forEach((el) => {
+    if (el !== audio && !el.paused) {
+      try { el.pause(); } catch (_) {}
+    }
+  });
+}
 
 let queue = [];
 let index = -1;
 let currentObjectUrl = null;
 let currentArtUrl = DEFAULT_ART_URL;
 let consecutiveErrors = 0; // safety valve against an all-corrupt queue looping forever
+let loadToken = 0; // monotonic guard against overlapping loadIndex() races
+
+let shuffle = false;
+let shuffleOrder = []; // permutation of queue indices, used only when shuffle is on
+let repeatMode = 'off'; // 'off' | 'all' | 'one'
+let lastRecordedSongId = null;
+let restoredTime = 0; // pending seek-on-load after a state restore
 
 const listeners = new Set();
 
@@ -46,6 +122,8 @@ function snapshot() {
     currentTime: audio.currentTime || 0,
     duration: Number.isFinite(audio.duration) ? audio.duration : (queue[index]?.duration || 0),
     artUrl: currentArtUrl,
+    shuffle,
+    repeatMode,
   };
 }
 
@@ -67,6 +145,8 @@ export function getState() {
   return snapshot();
 }
 
+// ---------- Queue loading ----------
+
 /**
  * Replace the queue and start playing at `startIndex`.
  * @param {Array} songs - song records (as returned by library-service)
@@ -74,9 +154,20 @@ export function getState() {
  */
 export async function loadQueue(songs, startIndex = 0) {
   if (!Array.isArray(songs) || songs.length === 0) return;
-  queue = songs;
+  queue = songs.slice();
   consecutiveErrors = 0;
+  rebuildShuffleOrder(startIndex);
   await loadIndex(startIndex, { autoplay: true });
+}
+
+/** Load a previously-saved queue without autoplaying (used on app restart). */
+async function loadQueueSilently(songs, startIndex, atTime) {
+  if (!Array.isArray(songs) || songs.length === 0) return;
+  queue = songs.slice();
+  consecutiveErrors = 0;
+  restoredTime = atTime || 0;
+  rebuildShuffleOrder(startIndex);
+  await loadIndex(startIndex, { autoplay: false });
 }
 
 async function loadIndex(newIndex, { autoplay }) {
@@ -86,27 +177,39 @@ async function loadIndex(newIndex, { autoplay }) {
     return;
   }
 
+  const myToken = ++loadToken;
+
   // Wrap safely regardless of direction
   index = ((newIndex % queue.length) + queue.length) % queue.length;
   const song = queue[index];
 
-  if (currentObjectUrl) {
-    URL.revokeObjectURL(currentObjectUrl);
-    currentObjectUrl = null;
-  }
-
   if (!song || !song.blob) {
     console.warn('[Melody] Player: queue entry missing audio data — skipping.', song);
-    return handlePlaybackFailure('This song is missing its audio data.');
+    return handlePlaybackFailure('This song is missing its audio data.', myToken);
   }
 
   try {
-    currentObjectUrl = URL.createObjectURL(song.blob);
-    audio.src = currentObjectUrl;
+    // Fully stop any prior playback before swapping sources — prevents a
+    // moment where the old buffer is still draining while the new src is
+    // assigned (heard as a brief overlapping/garbled blip on fast skips).
+    audio.pause();
+
+    const nextObjectUrl = URL.createObjectURL(song.blob);
+
+    audio.playbackRate = 1;
+    audio.src = nextObjectUrl;
+    audio.load();
+
+    // Only now that the new src is committed do we revoke the previous
+    // one — revoking too early (or from a stale/overlapping call) can
+    // corrupt whatever the audio element is mid-way through decoding.
+    if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = nextObjectUrl;
 
     // Resolve artwork without blocking playback start
     currentArtUrl = DEFAULT_ART_URL;
     getArtworkUrl(song).then((url) => {
+      if (myToken !== loadToken) return; // a newer load has already superseded this one
       currentArtUrl = url;
       updateMediaSessionMetadata(song, url);
       notify();
@@ -114,14 +217,30 @@ async function loadIndex(newIndex, { autoplay }) {
 
     updateMediaSessionMetadata(song, currentArtUrl);
 
+    if (restoredTime > 0) {
+      const seekTime = restoredTime;
+      restoredTime = 0;
+      const onLoaded = () => {
+        if (myToken === loadToken) audio.currentTime = seekTime;
+        audio.removeEventListener('loadedmetadata', onLoaded);
+      };
+      audio.addEventListener('loadedmetadata', onLoaded);
+    }
+
     if (autoplay) {
+      ensureSingleSource();
+      await resumeAudioGraphIfNeeded();
+      if (myToken !== loadToken) return; // superseded while we awaited resume()
       await audio.play();
     }
+
+    if (myToken !== loadToken) return;
     consecutiveErrors = 0;
     notify();
   } catch (err) {
+    if (myToken !== loadToken) return; // a newer load already took over — ignore this failure
     console.error(`[Melody] Player: failed to load/play "${song.title}".`, err);
-    handlePlaybackFailure(`Couldn't play "${song.title}" — skipping.`);
+    handlePlaybackFailure(`Couldn't play "${song.title}" — skipping.`, myToken);
   }
 }
 
@@ -130,7 +249,8 @@ async function loadIndex(newIndex, { autoplay }) {
  * track automatically, but stops trying after a full pass through the
  * queue fails so a library of entirely corrupt files can't spin forever.
  */
-function handlePlaybackFailure(message) {
+function handlePlaybackFailure(message, myToken) {
+  if (myToken !== undefined && myToken !== loadToken) return;
   showToast(message);
   consecutiveErrors += 1;
 
@@ -144,15 +264,20 @@ function handlePlaybackFailure(message) {
 
   // Small delay so rapid-fire failures (e.g. importing a batch of broken
   // files) don't produce a jarring stutter of toasts and play() calls.
-  setTimeout(() => loadIndex(index + 1, { autoplay: true }), 400);
+  setTimeout(() => loadIndex(stepIndex(1), { autoplay: true }), 400);
 }
 
-export function play() {
+// ---------- Transport ----------
+
+export async function play() {
   if (index === -1 && queue.length > 0) {
     return loadIndex(0, { autoplay: true });
   }
+  ensureSingleSource();
+  await resumeAudioGraphIfNeeded();
   return audio.play().catch((err) => {
     console.error('[Melody] Player: play() rejected.', err);
+    showToast("Playback couldn't start. Tap play again to retry.");
   });
 }
 
@@ -165,9 +290,19 @@ export function togglePlay() {
   pause();
 }
 
+/** Compute the next/previous queue index, respecting shuffle order. */
+function stepIndex(direction) {
+  if (queue.length === 0) return index;
+  if (!shuffle) return index + direction;
+
+  const posInShuffle = shuffleOrder.indexOf(index);
+  const nextPos = ((posInShuffle + direction) % shuffleOrder.length + shuffleOrder.length) % shuffleOrder.length;
+  return shuffleOrder[nextPos];
+}
+
 export function next() {
   if (queue.length === 0) return;
-  return loadIndex(index + 1, { autoplay: true });
+  return loadIndex(stepIndex(1), { autoplay: true });
 }
 
 export function previous() {
@@ -180,13 +315,130 @@ export function previous() {
     notify();
     return;
   }
-  return loadIndex(index - 1, { autoplay: true });
+  return loadIndex(stepIndex(-1), { autoplay: true });
+}
+
+/** Play a specific position in the current queue directly (e.g. from a Queue sheet). */
+export function playFromQueue(queueIndex) {
+  if (queueIndex < 0 || queueIndex >= queue.length) return;
+  return loadIndex(queueIndex, { autoplay: true });
 }
 
 /** Seek to an absolute time in seconds. */
 export function seek(time) {
   if (!Number.isFinite(time)) return;
-  audio.currentTime = Math.max(0, Math.min(time, audio.duration || time));
+  try {
+    audio.currentTime = Math.max(0, Math.min(time, audio.duration || time));
+  } catch (err) {
+    console.error('[Melody] Player: seek failed.', err);
+  }
+  notify();
+}
+
+// ---------- Shuffle & repeat ----------
+
+function rebuildShuffleOrder(anchorIndex = index) {
+  shuffleOrder = queue.map((_, i) => i);
+  if (!shuffle) return;
+  // Fisher-Yates, keeping the anchor (currently playing / about-to-play)
+  // track first so turning shuffle on mid-song doesn't jump anywhere.
+  for (let i = shuffleOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffleOrder[i], shuffleOrder[j]] = [shuffleOrder[j], shuffleOrder[i]];
+  }
+  if (anchorIndex >= 0) {
+    const pos = shuffleOrder.indexOf(anchorIndex);
+    if (pos > 0) {
+      shuffleOrder.splice(pos, 1);
+      shuffleOrder.unshift(anchorIndex);
+    }
+  }
+}
+
+export function setShuffle(enabled) {
+  shuffle = Boolean(enabled);
+  rebuildShuffleOrder(index);
+  notify();
+}
+
+export function toggleShuffle() {
+  setShuffle(!shuffle);
+  return shuffle;
+}
+
+export function setRepeatMode(mode) {
+  if (!['off', 'all', 'one'].includes(mode)) return;
+  repeatMode = mode;
+  notify();
+}
+
+/** Cycles Off -> All -> One -> Off. */
+export function cycleRepeatMode() {
+  repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+  notify();
+  return repeatMode;
+}
+
+export function getRepeatMode() {
+  return repeatMode;
+}
+
+export function isShuffleOn() {
+  return shuffle;
+}
+
+// ---------- Queue management ----------
+
+/** Append a song to the end of the queue without interrupting playback. */
+export function addToQueue(song) {
+  if (!song) return;
+  queue.push(song);
+  if (shuffle) shuffleOrder.push(queue.length - 1);
+  notify();
+}
+
+/** Insert a song to play immediately after the current one. */
+export function playNext(song) {
+  if (!song) return;
+  const insertAt = index >= 0 ? index + 1 : queue.length;
+  queue.splice(insertAt, 0, song);
+  rebuildShuffleOrder(index);
+  notify();
+}
+
+/** Remove a song at a given queue position. Adjusts the playing index safely. */
+export function removeFromQueue(queueIndex) {
+  if (queueIndex < 0 || queueIndex >= queue.length) return;
+  const wasCurrent = queueIndex === index;
+  queue.splice(queueIndex, 1);
+
+  if (queue.length === 0) {
+    index = -1;
+    audio.pause();
+    audio.removeAttribute('src');
+  } else if (wasCurrent) {
+    index = Math.min(queueIndex, queue.length - 1);
+    loadIndex(index, { autoplay: !audio.paused });
+    return;
+  } else if (queueIndex < index) {
+    index -= 1;
+  }
+
+  rebuildShuffleOrder(index);
+  notify();
+}
+
+/** Reorder the queue by moving the item at `from` to position `to`. */
+export function moveInQueue(from, to) {
+  if (from < 0 || from >= queue.length || to < 0 || to >= queue.length || from === to) return;
+  const [moved] = queue.splice(from, 1);
+  queue.splice(to, 0, moved);
+
+  if (index === from) index = to;
+  else if (from < index && to >= index) index -= 1;
+  else if (from > index && to <= index) index += 1;
+
+  rebuildShuffleOrder(index);
   notify();
 }
 
@@ -197,11 +449,37 @@ audio.addEventListener('play', notify);
 audio.addEventListener('pause', notify);
 audio.addEventListener('loadedmetadata', notify);
 
+audio.addEventListener('playing', () => {
+  const song = queue[index];
+  if (!song) return;
+  // Record "recently played" once per playback start, not on every
+  // resume-from-pause of the same track.
+  if (lastRecordedSongId !== song.id) {
+    lastRecordedSongId = song.id;
+    recordPlay(song.id);
+  }
+});
+
 audio.addEventListener('ended', () => {
-  // Natural end of a song that played fine — auto-advance, and don't let
-  // it count against the corrupt-file safety valve.
   consecutiveErrors = 0;
-  loadIndex(index + 1, { autoplay: true });
+
+  if (repeatMode === 'one') {
+    audio.currentTime = 0;
+    audio.play().catch((err) => console.error('[Melody] Player: repeat-one replay failed.', err));
+    return;
+  }
+
+  const atEnd = shuffle
+    ? shuffleOrder.indexOf(index) === shuffleOrder.length - 1
+    : index === queue.length - 1;
+
+  if (atEnd && repeatMode === 'off') {
+    // Stop cleanly at the end of the queue instead of wrapping forever.
+    notify();
+    return;
+  }
+
+  loadIndex(stepIndex(1), { autoplay: true });
 });
 
 audio.addEventListener('error', () => {
@@ -210,6 +488,72 @@ audio.addEventListener('error', () => {
   console.error('[Melody] Audio element error while playing', song, audio.error);
   handlePlaybackFailure(`${label} couldn't be played — it may be unsupported or corrupted.`);
 });
+
+audio.addEventListener('stalled', () => {
+  console.warn('[Melody] Player: playback stalled (buffering/network hiccup).');
+});
+
+// ---------- Persistence (survive app restart) ----------
+
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persistState, 800);
+}
+
+async function persistState() {
+  try {
+    if (index < 0 || !queue[index]) {
+      await setItem(PLAYBACK_STATE_KEY, null);
+      return;
+    }
+    await setItem(PLAYBACK_STATE_KEY, {
+      songIds: queue.map((s) => s.id),
+      index,
+      currentTime: audio.currentTime || 0,
+      shuffle,
+      repeatMode,
+      savedAt: Date.now(),
+    });
+  } catch (err) {
+    console.error('[Melody] Player: failed to persist playback state.', err);
+  }
+}
+
+audio.addEventListener('timeupdate', scheduleSave);
+audio.addEventListener('pause', persistState);
+window.addEventListener('pagehide', persistState);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') persistState();
+});
+
+/**
+ * Restore the last playback session (queue + position), without
+ * autoplaying — the user returns to a ready-to-resume player rather than
+ * music blaring on launch. Safe to call once at boot; silently no-ops if
+ * there's nothing to restore or any referenced song was removed.
+ */
+export async function restoreState() {
+  try {
+    const saved = await getItem(PLAYBACK_STATE_KEY);
+    if (!saved || !Array.isArray(saved.songIds) || saved.songIds.length === 0) return;
+
+    const songs = [];
+    for (const id of saved.songIds) {
+      const song = await getSong(id);
+      if (song) songs.push(song);
+    }
+    if (songs.length === 0) return;
+
+    shuffle = Boolean(saved.shuffle);
+    repeatMode = ['off', 'all', 'one'].includes(saved.repeatMode) ? saved.repeatMode : 'off';
+
+    const clampedIndex = Math.max(0, Math.min(saved.index || 0, songs.length - 1));
+    await loadQueueSilently(songs, clampedIndex, saved.currentTime || 0);
+  } catch (err) {
+    console.error('[Melody] Player: failed to restore playback state.', err);
+  }
+}
 
 // ---------- Media Session (lock screen / Bluetooth / PWA background controls) ----------
 

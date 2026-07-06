@@ -18,6 +18,7 @@
 
 import { cleanFilename } from '../utils/filename-cleaner.js';
 import { addSong, findPossibleDuplicate } from './library-service.js';
+import { getEmbeddedTags } from './artwork-service.js';
 
 const SUPPORTED_EXTENSIONS = ['mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg'];
 const SUPPORTED_MIME_PREFIXES = ['audio/'];
@@ -46,22 +47,31 @@ export async function importFiles(files, options = {}) {
       }
 
       const duration = await readDuration(file).catch(() => 0);
-      const { title, artist } = cleanFilename(file.name);
+      const { title: guessedTitle, artist: guessedArtist } = cleanFilename(file.name);
+
+      // Real ID3 tags (when present) beat the filename guess — a proper
+      // metadata-service with MusicBrainz/AcoustID lookups is still a
+      // future pass, but embedded tags are already sitting in the file
+      // and cost nothing extra to read during import.
+      const tags = await getEmbeddedTags({ fileName: file.name, mimeType: file.type, blob: file, title: guessedTitle })
+        .catch(() => ({ title: null, artist: null, album: null }));
+
+      const usedTags = Boolean(tags.title || tags.artist || tags.album);
 
       const candidate = {
         id: crypto.randomUUID(),
-        title,
-        artist: artist || 'Unknown Artist',
-        album: 'Unknown Album',
+        title: tags.title || guessedTitle,
+        artist: tags.artist || guessedArtist || 'Unknown Artist',
+        album: tags.album || 'Unknown Album',
         duration,
         fileName: file.name,
         mimeType: file.type || guessMimeType(file.name),
         blob: file,
         coverArt: null,
         dateAdded: Date.now(),
-        // Placeholder for the metadata-service pass — real tags/art/lyrics
-        // will populate this once that module lands.
-        metadata: { source: 'filename-guess', verified: false },
+        metadata: usedTags
+          ? { source: 'id3', verified: true }
+          : { source: 'filename-guess', verified: false },
       };
 
       const duplicate = await findPossibleDuplicate(candidate);

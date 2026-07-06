@@ -65,6 +65,47 @@ function isMp3(song) {
  * about the tag looks malformed.
  */
 async function extractId3Apic(blob) {
+  const frames = await readId3Frames(blob);
+  if (!frames) return null;
+  const apic = frames.find((f) => f.frameId === 'APIC');
+  if (!apic) return null;
+  return parseApicFrame(apic.buffer, apic.start, apic.size);
+}
+
+/**
+ * Read real ID3v2 text tags (title/artist/album) for a song, so imports
+ * aren't limited to filename guessing when the file already carries
+ * proper metadata. Returns null fields for anything not present — the
+ * caller decides how to fall back (e.g. to the filename-cleaner guess).
+ * Never throws: any parse failure just yields an all-null result.
+ */
+export async function getEmbeddedTags(song) {
+  const empty = { title: null, artist: null, album: null };
+  if (!song || !isMp3(song)) return empty;
+
+  try {
+    const frames = await readId3Frames(song.blob);
+    if (!frames) return empty;
+
+    const find = (id) => frames.find((f) => f.frameId === id);
+    const title = parseTextFrame(find('TIT2'));
+    const artist = parseTextFrame(find('TPE1'));
+    const album = parseTextFrame(find('TALB'));
+
+    return { title, artist, album };
+  } catch (err) {
+    console.warn(`[Melody] ID3 text tag extraction failed for "${song.title}".`, err);
+    return empty;
+  }
+}
+
+/**
+ * Shared low-level walk over an ID3v2.3/2.4 tag's frames. Returns an array
+ * of { frameId, buffer, start, size } so both artwork (APIC) and text tag
+ * (TIT2/TPE1/TALB) readers can reuse the same parsing/bounds-checking
+ * logic instead of duplicating it. Returns null if there's no valid tag.
+ */
+async function readId3Frames(blob) {
   // ID3v2 tags live at the very start of the file and are almost always
   // well under 1MB even with large embedded art — read a generous slice
   // rather than the whole file for speed on big FLAC-sized uploads.
@@ -93,6 +134,8 @@ async function extractId3Apic(blob) {
     offset += extSize + (majorVersion === 4 ? 0 : 4);
   }
 
+  const frames = [];
+
   while (offset + 10 <= tagEnd) {
     const frameId = readAscii(view, offset, 4);
     if (!frameId || frameId === '\0\0\0\0') break; // padding reached
@@ -106,15 +149,37 @@ async function extractId3Apic(blob) {
 
     if (frameSize <= 0 || frameStart + frameSize > buffer.byteLength) break; // malformed, bail safely
 
-    if (frameId === 'APIC') {
-      const picture = parseApicFrame(buffer, frameStart, frameSize);
-      if (picture) return picture;
-    }
-
+    frames.push({ frameId, buffer, start: frameStart, size: frameSize });
     offset = frameStart + frameSize;
   }
 
-  return null;
+  return frames;
+}
+
+/** Decode a text-information frame (TIT2/TPE1/TALB/...) to a plain string. */
+function parseTextFrame(frame) {
+  if (!frame) return null;
+  const bytes = new Uint8Array(frame.buffer, frame.start, frame.size);
+  if (bytes.length < 2) return null;
+
+  const encoding = bytes[0];
+  const body = bytes.slice(1);
+  let text = '';
+
+  try {
+    if (encoding === 0) {
+      text = new TextDecoder('iso-8859-1').decode(body); // ISO-8859-1
+    } else if (encoding === 3) {
+      text = new TextDecoder('utf-8').decode(body); // UTF-8
+    } else {
+      text = new TextDecoder('utf-16').decode(body); // UTF-16 (BOM or not) — encodings 1/2
+    }
+  } catch (err) {
+    return null;
+  }
+
+  text = text.replace(/\u0000+$/g, '').trim();
+  return text || null;
 }
 
 /** APIC frame layout: [encoding:1][mime:zstr][pictureType:1][description:zstr][imageData:...] */
