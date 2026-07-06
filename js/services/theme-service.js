@@ -10,7 +10,7 @@
  * while the app is open.
  */
 
-import { getItem, setItem } from './storage.js';
+import { getItem, setItem } from '../utils/storage.js';
 
 const STORAGE_KEY = 'theme';
 const VALID_MODES = ['light', 'dark', 'system'];
