@@ -22,6 +22,7 @@ import { initTheme } from './services/theme-service.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
 import { renderGreetingScreen } from './components/greeting-screen.js';
 import { renderHomeScreen } from './components/home-screen.js';
+import { renderPlayerScreen } from './components/player-screen.js';
 
 async function boot() {
   console.log('[Melody] App boot started');
@@ -38,6 +39,7 @@ async function boot() {
   registerRoute('nickname', renderNicknameScreen);
   registerRoute('greeting', renderGreetingScreen);
   registerRoute('home', renderHomeScreen);
+  registerRoute('player', renderPlayerScreen);
   console.log('[Melody] Router mounted');
 
   // ---------- Theme / settings ----------
