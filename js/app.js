@@ -19,10 +19,14 @@
 import { getItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate } from './utils/router.js';
 import { initTheme } from './services/theme-service.js';
+import { restoreState } from './services/player-service.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
 import { renderGreetingScreen } from './components/greeting-screen.js';
 import { renderHomeScreen } from './components/home-screen.js';
 import { renderPlayerScreen } from './components/player-screen.js';
+import { renderSearchScreen } from './components/search-screen.js';
+import { renderLibraryScreen } from './components/library-screen.js';
+import { renderSettingsScreen } from './components/settings-screen.js';
 
 async function boot() {
   console.log('[Melody] App boot started');
@@ -40,7 +44,17 @@ async function boot() {
   registerRoute('greeting', renderGreetingScreen);
   registerRoute('home', renderHomeScreen);
   registerRoute('player', renderPlayerScreen);
+  registerRoute('search', renderSearchScreen);
+  registerRoute('library', renderLibraryScreen);
+  registerRoute('settings', renderSettingsScreen);
   console.log('[Melody] Router mounted');
+
+  // ---------- Restore last playback session (queue + position) ----------
+  // Runs in the background; never blocks first paint, and any failure is
+  // just logged — a fresh empty player is a safe fallback either way.
+  restoreState().catch((err) => {
+    console.error('[Melody] Playback state restore failed — starting with an empty player.', err);
+  });
 
   // ---------- Theme / settings ----------
   try {
