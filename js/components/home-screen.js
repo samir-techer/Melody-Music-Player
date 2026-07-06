@@ -10,17 +10,18 @@ import { getTimeOfDayLabel, getTimeOfDayEmoji } from '../utils/time-of-day.js';
 import { toggleTheme, getThemeMode } from '../services/theme-service.js';
 import { importFiles } from '../services/import-service.js';
 import { getAllSongs } from '../services/library-service.js';
-import { subscribe, loadQueue, togglePlay } from '../services/player-service.js';
+import { loadQueue } from '../services/player-service.js';
 import { getArtworkUrl } from '../services/artwork-service.js';
 import { navigate } from '../utils/router.js';
+import { attachShell } from './shell.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums' },
   { key: 'artists', label: 'Artists' },
   { key: 'playlists', label: 'Playlists' },
   { key: 'folders', label: 'Folders' },
-  { key: 'genres', label: 'Genres' },
   { key: 'favorites', label: 'Favorites ❤️' },
+  { key: 'recent', label: 'Recently Played' },
 ];
 
 export async function renderHomeScreen() {
@@ -65,9 +66,9 @@ export async function renderHomeScreen() {
       </div>
     </header>
 
-    <div class="home-search" role="search">
+    <div class="home-search" role="search" id="home-search-trigger">
       <span aria-hidden="true">⌕</span>
-      <input type="search" placeholder="Search songs, artists, albums…" id="home-search-input" />
+      <input type="search" placeholder="Search songs, artists, albums…" id="home-search-input" readonly />
     </div>
 
     <section class="section" id="section-recent">
@@ -105,24 +106,6 @@ export async function renderHomeScreen() {
       <input type="file" id="import-file-input" accept="audio/*,.mp3,.flac,.m4a,.aac,.wav,.ogg" multiple hidden />
       <p class="import-status" id="import-status" hidden></p>
     </section>
-
-    <nav class="bottom-nav" aria-label="Primary">
-      <button class="active" data-nav="home"><span class="icon" aria-hidden="true">⌂</span>Home</button>
-      <button data-nav="search"><span class="icon" aria-hidden="true">⌕</span>Search</button>
-      <button data-nav="library"><span class="icon" aria-hidden="true">▤</span>Library</button>
-      <button data-nav="settings"><span class="icon" aria-hidden="true">⚙</span>Settings</button>
-    </nav>
-
-    <div class="mini-player" id="mini-player" hidden>
-      <div class="art"><img src="" alt="" /></div>
-      <div class="info">
-        <div class="title">—</div>
-        <div class="artist">—</div>
-      </div>
-      <div class="controls">
-        <button class="icon" aria-label="Play or pause">▶</button>
-      </div>
-    </div>
   `;
 
   // ---------- Theme toggle ----------
@@ -170,10 +153,22 @@ export async function renderHomeScreen() {
     }, 900);
   });
 
-  // ---------- Library shortcut buttons (placeholders until those screens exist) ----------
+  // ---------- Search bar: tap through to the real Search screen ----------
+  el.querySelector('#home-search-trigger').addEventListener('click', () => navigate('search'));
+
+  // ---------- Library shortcut buttons ----------
   el.querySelectorAll('.grid-link').forEach((btn) => {
     btn.addEventListener('click', () => {
-      alert(`The "${btn.textContent.trim()}" screen is coming in a future build pass.`);
+      const key = btn.dataset.key;
+      if (key === 'playlists' || key === 'folders') {
+        alert(`"${btn.textContent.trim()}" is coming in a future build pass.`);
+        return;
+      }
+      if (key === 'recent') {
+        navigate('library', { tab: 'recent' });
+        return;
+      }
+      navigate('library', { tab: key });
     });
   });
 
@@ -199,35 +194,8 @@ export async function renderHomeScreen() {
     });
   });
 
-  // ---------- Mini player: reflects live playback state ----------
-  const miniPlayer = el.querySelector('#mini-player');
-  const miniArtImg = miniPlayer.querySelector('.art img');
-  const miniTitle = miniPlayer.querySelector('.info .title');
-  const miniArtist = miniPlayer.querySelector('.info .artist');
-  const miniPlayPauseBtn = miniPlayer.querySelector('.controls button');
-
-  const unsubscribe = subscribe((state) => {
-    if (!state.currentSong) {
-      miniPlayer.hidden = true;
-      return;
-    }
-    miniPlayer.hidden = false;
-    miniArtImg.src = state.artUrl;
-    miniTitle.textContent = state.currentSong.title;
-    miniArtist.textContent = state.currentSong.artist;
-    miniPlayPauseBtn.textContent = state.isPlaying ? '⏸' : '▶';
-    miniPlayPauseBtn.setAttribute('aria-label', state.isPlaying ? 'Pause' : 'Play');
-  });
-
-  // Any tap on the mini player (except its own control button) opens Now Playing.
-  miniPlayer.addEventListener('click', (e) => {
-    if (e.target === miniPlayPauseBtn) return;
-    navigate('player');
-  });
-  miniPlayPauseBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    togglePlay();
-  });
+  // ---------- Shared bottom nav + mini player ----------
+  const unsubscribe = attachShell(el, 'home');
 
   // Unsubscribe when this screen is navigated away from, so state updates
   // don't keep firing against a detached DOM tree.
