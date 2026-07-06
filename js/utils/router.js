@@ -23,10 +23,18 @@ export async function navigate(name, params = {}) {
   const renderFn = routes.get(name);
   if (!renderFn) throw new Error(`No route registered for "${name}"`);
 
+  // Give the outgoing screen a chance to clean up (e.g. unsubscribe from
+  // player-service) before its DOM is discarded. A screen opts in by
+  // setting `element._onLeave = fn` when it renders.
+  const outgoing = rootEl.firstElementChild;
+  if (outgoing?._onLeave) {
+    try { outgoing._onLeave(); } catch (err) { console.error('[Melody] Screen cleanup threw:', err); }
+  }
+
   // Fade out current screen
-  if (rootEl.firstElementChild) {
-    rootEl.firstElementChild.style.transition = 'opacity 180ms ease';
-    rootEl.firstElementChild.style.opacity = '0';
+  if (outgoing) {
+    outgoing.style.transition = 'opacity 180ms ease';
+    outgoing.style.opacity = '0';
     await wait(160);
   }
 
