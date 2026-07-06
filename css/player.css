@@ -34,6 +34,7 @@
 }
 
 .player-topbar-spacer { width: 40px; }
+#queue-toggle { font-size: 18px; }
 
 /* ---------- Vinyl + album art ---------- */
 
@@ -60,10 +61,16 @@
     var(--color-accent) 10px
   );
   box-shadow: var(--shadow-md);
+  /* Always running, just paused/resumed — animation-play-state keeps the
+     current rotation frame, so pausing/resuming (or navigating away and
+     back) never snaps the disc back to 0deg. Toggling `animation` itself
+     on/off (the old approach) loses that angle every time. */
+  animation: vinyl-spin 3.2s linear infinite;
+  animation-play-state: paused;
 }
 
 .vinyl-disc.spinning {
-  animation: vinyl-spin 3.2s linear infinite;
+  animation-play-state: running;
 }
 
 .album-art {
@@ -76,6 +83,9 @@
   overflow: hidden;
   background: var(--color-bg-secondary);
   box-shadow: var(--shadow-lg);
+  transform: scale(1);
+  transition: transform var(--duration-slow) var(--ease-standard);
+  view-transition-name: melody-album-art;
 }
 
 .album-art img {
@@ -84,22 +94,41 @@
   object-fit: cover;
 }
 
+/* Subtle "breathing" scale while a track is actively playing — stops
+   cleanly (returns to scale(1)) the instant playback pauses. */
+.album-art.breathing {
+  animation: album-breathe 4.5s ease-in-out infinite;
+}
+
 @keyframes vinyl-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 
+@keyframes album-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .vinyl-disc.spinning { animation: none; }
+  .vinyl-disc { animation: none; }
+  .album-art.breathing { animation: none; }
 }
 
 /* ---------- Song info ---------- */
 
 .now-playing-info {
-  text-align: center;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+.now-playing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  text-align: left;
 }
 
 .now-playing-info h1 {
@@ -165,7 +194,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-6);
+  gap: var(--space-4);
   margin-top: var(--space-2);
 }
 
@@ -183,11 +212,97 @@
 }
 
 .transport-controls .play-pause {
+  position: relative;
   width: 68px;
   height: 68px;
   border-radius: var(--radius-full);
   background: var(--color-accent);
   color: var(--color-bg);
-  font-size: 24px;
+  font-size: 22px;
   box-shadow: var(--shadow-md);
+}
+
+/* Animated play/pause: both glyphs stacked, crossfaded + scaled on toggle
+   instead of an instant textContent swap. */
+.play-pause .ppicon {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-out);
+}
+.play-pause .play-glyph { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.play-pause.is-playing .play-glyph { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+.play-pause.is-playing .pause-glyph { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.secondary-control {
+  font-size: 17px;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+.secondary-control.active {
+  color: var(--color-text-primary);
+  opacity: 1;
+}
+
+/* ---------- Queue sheet ---------- */
+.queue-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  max-height: 60vh;
+  background: var(--color-card);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  padding-bottom: calc(var(--space-4) + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 30;
+  transform: translateY(0);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.queue-sheet[hidden] { display: none; }
+
+.queue-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.queue-sheet-header h2 { font-size: var(--text-md); }
+.queue-sheet-header button { font-size: 16px; color: var(--color-text-secondary); }
+
+.queue-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.queue-row.current { background: var(--color-accent-softer); }
+.queue-row .info .title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px;
+}
+.queue-row .info .meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+.queue-remove {
+  width: 32px; height: 32px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
