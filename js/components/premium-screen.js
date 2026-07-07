@@ -1,15 +1,19 @@
 /**
  * premium-screen.js
- * Melody Premium — plans, billing toggle, comparison table, FAQ and the
- * "coming soon" purchase modal. Rendered as a normal router screen (no
- * separate HTML file, no payments) and reachable from Settings.
+ * Melody Premium — plans (each with its own Monthly/Yearly toggle),
+ * comparison table, FAQ and the "coming soon" purchase modal. Rendered as
+ * a normal router screen (no separate HTML file, no payments) and
+ * reachable from Settings.
  *
  * Pricing rules:
  *  - Every paid plan has a base monthly price and a yearly discount %.
- *  - Switching the toggle to "Yearly" applies that plan's yearly discount
- *    to the monthly-equivalent price.
- *  - The welcome banner's extra 20% first-purchase discount always stacks
- *    on top of whatever billing price is currently shown.
+ *  - Basic, Plus and Elite each carry their OWN billing selection
+ *    (`planBilling[key]`), defaulting to Monthly. Flipping one plan's
+ *    toggle only re-renders that plan's price block.
+ *  - Yearly price = 12 × monthly price, discounted by the plan's yearly
+ *    discount %, shown as a real annual total (not a monthly rate).
+ *  - The welcome banner's 20% first-purchase discount is presented as a
+ *    banner only — it isn't folded into the per-plan prices below.
  */
 
 import { navigate } from '../utils/router.js';
@@ -138,7 +142,13 @@ const FAQS = [
 export async function renderPremiumScreen() {
   const el = document.createElement('div');
   el.className = 'screen premium-screen';
-  let billing = 'monthly'; // 'monthly' | 'yearly'
+
+  // Each paid plan remembers its own Monthly/Yearly selection, independent
+  // of the others — switching Basic to Yearly never touches Plus or Elite.
+  const planBilling = {};
+  PLANS.forEach((plan) => {
+    if (plan.price > 0) planBilling[plan.key] = 'monthly';
+  });
 
   el.innerHTML = `
     <a href="#" class="premium-back" id="premium-back">&larr; Back</a>
@@ -148,19 +158,10 @@ export async function renderPremiumScreen() {
       <p>Unlock more features and support Melody's development.</p>
     </header>
 
-    <div class="billing-toggle-wrap premium-fade">
-      <div class="billing-toggle" id="billing-toggle">
-        <div class="toggle-thumb"></div>
-        <button type="button" data-billing="monthly" class="active">Monthly</button>
-        <button type="button" data-billing="yearly">Yearly</button>
-      </div>
-      <span class="billing-savings">Save up to 33% with yearly billing</span>
-    </div>
-
     <div class="welcome-banner premium-fade">
       <div class="emoji">🎉</div>
       <div class="copy">
-        <strong>Extra 20% OFF your first purchase!</strong>
+        <strong>Extra ${FIRST_PURCHASE_OFF}% OFF your first purchase!</strong>
         <span>Stacks with yearly billing \u2014 applied automatically at checkout.</span>
       </div>
     </div>
@@ -195,7 +196,7 @@ export async function renderPremiumScreen() {
 
   // ---------- Render plan cards ----------
   const plansGrid = el.querySelector('#plans-grid');
-  plansGrid.innerHTML = PLANS.map((plan) => renderPlanCard(plan, billing)).join('');
+  plansGrid.innerHTML = PLANS.map((plan) => renderPlanCard(plan, planBilling[plan.key] || 'monthly')).join('');
 
   // ---------- Render comparison table ----------
   const compareBody = el.querySelector('#compare-body');
@@ -227,25 +228,41 @@ export async function renderPremiumScreen() {
     navigate('settings');
   });
 
-  // ---------- Billing toggle ----------
-  const toggleEl = el.querySelector('#billing-toggle');
-  toggleEl.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-billing]');
-    if (!btn) return;
-    billing = btn.dataset.billing;
-    toggleEl.classList.toggle('is-yearly', billing === 'yearly');
-    toggleEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.billing === billing));
-    plansGrid.innerHTML = PLANS.map((plan) => renderPlanCard(plan, billing)).join('');
-    bindPlanButtons();
+  // ---------- Per-plan billing toggle + CTA (single delegated listener —
+  // cards are never rebuilt, only each plan's price block is refreshed) ----------
+  plansGrid.addEventListener('click', (e) => {
+    const toggleBtn = e.target.closest('.plan-billing-toggle button[data-billing]');
+    if (toggleBtn) {
+      const toggleWrap = toggleBtn.closest('.plan-billing-toggle');
+      const key = toggleWrap.dataset.plan;
+      const newBilling = toggleBtn.dataset.billing;
+      if (planBilling[key] === newBilling) return;
+
+      planBilling[key] = newBilling;
+      toggleWrap.classList.toggle('is-yearly', newBilling === 'yearly');
+      toggleWrap.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.billing === newBilling));
+
+      updatePriceBlock(key, newBilling);
+      return;
+    }
+
+    const ctaBtn = e.target.closest('.plan-cta:not([disabled])');
+    if (ctaBtn) openComingSoonModal(el);
   });
 
-  // ---------- Plan CTA buttons (delegated, rebound after each re-render) ----------
-  function bindPlanButtons() {
-    plansGrid.querySelectorAll('.plan-cta:not([disabled])').forEach((btn) => {
-      btn.addEventListener('click', () => openComingSoonModal(el));
-    });
+  // Cross-fades a single plan's price block into its new Monthly/Yearly
+  // value without touching the toggle, features, badge or any other card.
+  function updatePriceBlock(key, newBilling) {
+    const plan = PLANS.find((p) => p.key === key);
+    const block = plansGrid.querySelector(`#price-block-${key}`);
+    if (!plan || !block) return;
+
+    block.classList.add('is-fading');
+    setTimeout(() => {
+      block.innerHTML = renderPriceBlock(plan, newBilling);
+      block.classList.remove('is-fading');
+    }, 160);
   }
-  bindPlanButtons();
 
   // ---------- FAQ accordion ----------
   faqList.addEventListener('click', (e) => {
@@ -292,32 +309,49 @@ export async function renderPremiumScreen() {
 }
 
 /**
- * Computes the price to display for a plan under the current billing mode.
- * Returns { original, final, note } where `original` is only meaningful
- * (non-null) when a strikethrough should be shown.
+ * Computes what a single plan costs under its OWN current billing mode.
+ * Monthly is just the base monthly price. Yearly is a real annual total —
+ * 12 months at the plan's yearly discount — plus the equivalent monthly
+ * rate that total works out to, so the savings note is easy to trust.
  */
 function computePrice(plan, billing) {
   if (plan.price === 0) {
-    return { original: null, final: 0, note: 'Forever free' };
+    return { priceLabel: `${CURRENCY} 0`, unit: '', offBadge: null, note: 'Forever free' };
   }
 
-  const base = plan.price;
-  const yearlyPrice = billing === 'yearly' ? base * (1 - plan.yearlyOff / 100) : base;
-  const finalPrice = yearlyPrice * (1 - FIRST_PURCHASE_OFF / 100);
-
-  const note = billing === 'yearly'
-    ? `Billed yearly \u2022 Save ${plan.yearlyOff}% + ${FIRST_PURCHASE_OFF}% first purchase`
-    : `Save ${FIRST_PURCHASE_OFF}% on your first month`;
+  if (billing === 'yearly') {
+    const yearlyTotal = Math.round(plan.price * 12 * (1 - plan.yearlyOff / 100));
+    const equivalentMonthly = Math.round(yearlyTotal / 12);
+    return {
+      priceLabel: `${CURRENCY} ${yearlyTotal.toLocaleString('en-IN')}`,
+      unit: '/year',
+      offBadge: `${plan.yearlyOff}% OFF`,
+      note: `Save ${plan.yearlyOff}% with yearly billing \u2022 Equivalent to ${CURRENCY} ${equivalentMonthly.toLocaleString('en-IN')}/month`,
+    };
+  }
 
   return {
-    original: Math.round(base),
-    final: Math.round(finalPrice),
-    note,
+    priceLabel: `${CURRENCY} ${plan.price.toLocaleString('en-IN')}`,
+    unit: '/month',
+    offBadge: null,
+    note: null,
   };
 }
 
+/** The part of a plan card that changes when its toggle flips — price,
+ *  OFF badge and savings note. Everything else in the card stays put. */
+function renderPriceBlock(plan, billing) {
+  const { priceLabel, unit, offBadge, note } = computePrice(plan, billing);
+  return `
+    <div class="plan-price-row">
+      <span class="plan-price-final">${priceLabel}${unit ? `<span class="per">${unit}</span>` : ''}</span>
+      ${offBadge ? `<span class="plan-off-badge">${offBadge}</span>` : ''}
+    </div>
+    <div class="plan-price-note">${note || ''}</div>
+  `;
+}
+
 function renderPlanCard(plan, billing) {
-  const { original, final, note } = computePrice(plan, billing);
   const isFree = plan.price === 0;
 
   return `
@@ -327,11 +361,17 @@ function renderPlanCard(plan, billing) {
         <span class="plan-badge">${plan.badge}</span>
       </div>
 
-      <div class="plan-price-row">
-        ${original && !isFree ? `<span class="plan-price-original">${CURRENCY} ${original}/mo</span>` : ''}
-        <span class="plan-price-final">${CURRENCY} ${final}${isFree ? '' : '<span class="per">/mo</span>'}</span>
+      ${isFree ? '' : `
+      <div class="plan-billing-toggle ${billing === 'yearly' ? 'is-yearly' : ''}" data-plan="${plan.key}">
+        <div class="toggle-thumb"></div>
+        <button type="button" data-billing="monthly" class="${billing === 'monthly' ? 'active' : ''}">Monthly</button>
+        <button type="button" data-billing="yearly" class="${billing === 'yearly' ? 'active' : ''}">Yearly</button>
       </div>
-      <div class="plan-price-note">${note}</div>
+      `}
+
+      <div class="plan-price-block" id="price-block-${plan.key}">
+        ${renderPriceBlock(plan, billing)}
+      </div>
 
       <ul class="plan-features">
         ${plan.features.map((f) => `<li><span class="tick">✓</span>${f}</li>`).join('')}
