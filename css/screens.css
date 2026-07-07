@@ -163,3 +163,13 @@
 }
 
 .count { color: var(--color-text-secondary); font-weight: 400; }
+
+/* ---------- Premium promo entry (Settings) ---------- */
+.premium-promo {
+  width: 100%;
+  text-align: left;
+  transition: transform var(--duration-fast) var(--ease-standard),
+              opacity var(--duration-fast) var(--ease-standard);
+}
+.premium-promo:active { transform: scale(0.98); opacity: 0.85; }
+.premium-promo .settings-row { border-bottom: none; }
