@@ -53,6 +53,7 @@ const PLANS = [
     theme: 'pink',
     price: 99,
     yearlyOff: 15,
+    yearlyPrice: 1010, // रु99 × 12 = रु1,188 → 15% OFF = रु1,010
     cta: 'Upgrade to Basic',
     features: [
       'Everything in Free',
@@ -70,6 +71,7 @@ const PLANS = [
     theme: 'purple',
     price: 249,
     yearlyOff: 20,
+    yearlyPrice: 2390, // रु249 × 12 = रु2,988 → 20% OFF = रु2,390
     highlight: true,
     cta: 'Upgrade to Plus',
     features: [
@@ -88,6 +90,7 @@ const PLANS = [
     theme: 'gold',
     price: 399,
     yearlyOff: 33,
+    yearlyPrice: 3205, // रु399 × 12 = रु4,788 → 33% OFF = रु3,205
     cta: 'Upgrade to Elite',
     features: [
       'Everything in Plus',
@@ -309,42 +312,59 @@ export async function renderPremiumScreen() {
 }
 
 /**
- * Computes what a single plan costs under its OWN current billing mode.
- * Monthly is just the base monthly price. Yearly is a real annual total —
- * 12 months at the plan's yearly discount — plus the equivalent monthly
- * rate that total works out to, so the savings note is easy to trust.
+ * Computes everything a plan's price block needs to show for ONE billing
+ * mode. Monthly is just the flat monthly rate. Yearly returns both the
+ * pre-discount annual total (12 × monthly, shown struck through) and the
+ * plan's fixed discounted annual total, plus the exact rupee amount saved.
  */
 function computePrice(plan, billing) {
   if (plan.price === 0) {
-    return { priceLabel: `${CURRENCY} 0`, unit: '', offBadge: null, note: 'Forever free' };
+    return { isFree: true };
   }
 
   if (billing === 'yearly') {
-    const yearlyTotal = Math.round(plan.price * 12 * (1 - plan.yearlyOff / 100));
-    const equivalentMonthly = Math.round(yearlyTotal / 12);
+    const yearlyOriginal = plan.price * 12;
+    const yearlyFinal = plan.yearlyPrice;
+    const savings = yearlyOriginal - yearlyFinal;
     return {
-      priceLabel: `${CURRENCY} ${yearlyTotal.toLocaleString('en-IN')}`,
+      original: yearlyOriginal,
+      finalPrice: yearlyFinal,
       unit: '/year',
       offBadge: `${plan.yearlyOff}% OFF`,
-      note: `Save ${plan.yearlyOff}% with yearly billing \u2022 Equivalent to ${CURRENCY} ${equivalentMonthly.toLocaleString('en-IN')}/month`,
+      note: `You save ${CURRENCY} ${savings.toLocaleString('en-IN')}`,
     };
   }
 
   return {
-    priceLabel: `${CURRENCY} ${plan.price.toLocaleString('en-IN')}`,
+    original: null,
+    finalPrice: plan.price,
     unit: '/month',
     offBadge: null,
     note: null,
   };
 }
 
-/** The part of a plan card that changes when its toggle flips — price,
- *  OFF badge and savings note. Everything else in the card stays put. */
+/** The part of a plan card that changes when its toggle flips — original
+ *  (struck-through) price, discounted price, OFF badge and savings note.
+ *  Everything else in the card (toggle, features, badge, CTA) stays put. */
 function renderPriceBlock(plan, billing) {
-  const { priceLabel, unit, offBadge, note } = computePrice(plan, billing);
+  const priced = computePrice(plan, billing);
+
+  if (priced.isFree) {
+    return `
+      <div class="plan-price-row">
+        <span class="plan-price-final plan-price-forever">Forever Free</span>
+      </div>
+      <div class="plan-price-note">No credit card needed \u2014 ever.</div>
+    `;
+  }
+
+  const { original, finalPrice, unit, offBadge, note } = priced;
+
   return `
     <div class="plan-price-row">
-      <span class="plan-price-final">${priceLabel}${unit ? `<span class="per">${unit}</span>` : ''}</span>
+      ${original ? `<span class="plan-price-original">${CURRENCY} ${original.toLocaleString('en-IN')}</span>` : ''}
+      <span class="plan-price-final">${CURRENCY} ${finalPrice.toLocaleString('en-IN')}<span class="per">${unit}</span></span>
       ${offBadge ? `<span class="plan-off-badge">${offBadge}</span>` : ''}
     </div>
     <div class="plan-price-note">${note || ''}</div>
