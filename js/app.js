@@ -27,6 +27,7 @@ import { renderPlayerScreen } from './components/player-screen.js';
 import { renderSearchScreen } from './components/search-screen.js';
 import { renderLibraryScreen } from './components/library-screen.js';
 import { renderSettingsScreen } from './components/settings-screen.js';
+import { renderPremiumScreen } from './components/premium-screen.js';
 
 async function boot() {
   console.log('[Melody] App boot started');
@@ -47,6 +48,7 @@ async function boot() {
   registerRoute('search', renderSearchScreen);
   registerRoute('library', renderLibraryScreen);
   registerRoute('settings', renderSettingsScreen);
+  registerRoute('premium', renderPremiumScreen);
   console.log('[Melody] Router mounted');
 
   // ---------- Restore last playback session (queue + position) ----------
