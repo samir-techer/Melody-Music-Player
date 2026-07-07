@@ -30,6 +30,15 @@ export async function renderSettingsScreen() {
     </header>
 
     <section class="section">
+      <button class="settings-list premium-promo" id="premium-promo-btn" type="button">
+        <div class="settings-row">
+          <span>⭐ Melody Premium</span>
+          <span class="settings-value">Preview &rsaquo;</span>
+        </div>
+      </button>
+    </section>
+
+    <section class="section">
       <div class="section-heading"><h2>Appearance</h2></div>
       <div class="segmented" id="theme-picker" role="tablist">
         ${THEME_OPTIONS.map((opt) => `
@@ -65,6 +74,11 @@ export async function renderSettingsScreen() {
       </div>
     </section>
   `;
+
+  el.querySelector('#premium-promo-btn').addEventListener('click', async () => {
+    const { navigate } = await import('../utils/router.js');
+    navigate('premium');
+  });
 
   el.querySelector('#theme-picker').addEventListener('click', async (e) => {
     const btn = e.target.closest('.segment');
