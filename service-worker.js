@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v5'; // bumped: Pass 5 — navigation, search, library, settings, queue/shuffle/repeat, favorites, persistence
+const CACHE_NAME = 'melody-shell-v6'; // bumped: added Melody Premium screen (preview, no payments)
 
 const APP_SHELL = [
   './',
@@ -19,6 +19,7 @@ const APP_SHELL = [
   './css/player.css',
   './css/screens.css',
   './css/toast.css',
+  './css/premium.css',
   './js/app.js',
   './js/utils/db.js',
   './js/utils/storage.js',
@@ -40,6 +41,7 @@ const APP_SHELL = [
   './js/components/search-screen.js',
   './js/components/library-screen.js',
   './js/components/settings-screen.js',
+  './js/components/premium-screen.js',
   './js/components/shell.js',
   './js/components/song-list.js',
   './assets/icons/icon-192.png',
