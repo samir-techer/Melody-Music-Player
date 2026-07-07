@@ -88,6 +88,7 @@
   border-radius: var(--radius-full);
   transition: transform var(--duration-base) var(--ease-out);
   z-index: 0;
+  pointer-events: none;
 }
 .plan-billing-toggle.is-yearly .toggle-thumb {
   transform: translateX(100%);
@@ -223,6 +224,9 @@
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--p-text-dim);
+}
+.plan-price-final.plan-price-forever {
+  font-size: 1.5rem;
 }
 .plan-off-badge {
   font-size: 0.6875rem;
