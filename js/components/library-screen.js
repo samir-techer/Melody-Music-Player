@@ -88,7 +88,7 @@ export async function renderLibraryScreen(params = {}) {
     </div>
     <div id="library-content" class="section"></div>
 
-    <div class="bulk-action-bar" id="bulk-bar" hidden>
+    <div class="bulk-action-bar" id="bulk-bar" aria-hidden="true">
       <span class="bulk-count" id="bulk-count">0 selected</span>
       <div class="bulk-actions">
         <button data-action="favorite" aria-label="Favorite selected">♥</button>
@@ -118,8 +118,16 @@ export async function renderLibraryScreen(params = {}) {
   }
 
   function updateBulkBar() {
-    bulkBar.hidden = !selectMode || selectedIds.size === 0;
+    const visible = selectMode && selectedIds.size > 0;
+    bulkBar.classList.toggle('is-visible', visible);
+    bulkBar.setAttribute('aria-hidden', String(!visible));
     bulkCount.textContent = `${selectedIds.size} selected`;
+
+    // The bottom nav lives in the same footprint as the bulk bar (it's
+    // appended by attachShell, which runs after the first renderContent),
+    // so guard against it not existing yet on the very first call.
+    const navEl = el.querySelector('.bottom-nav');
+    if (navEl) navEl.classList.toggle('is-collapsed', visible);
   }
 
   function toggleSelect(id) {
