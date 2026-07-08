@@ -7,14 +7,16 @@
  * versions from different files is a classic source of "blocked" errors.
  *
  * Object stores:
- *   - "kv"    : simple key/value app state (nickname, theme, flags)
- *   - "songs" : imported track records (see library-service.js for shape)
+ *   - "kv"        : simple key/value app state (nickname, theme, flags)
+ *   - "songs"     : imported track records (see library-service.js for shape)
+ *   - "playlists" : user-created playlists (see playlist-service.js for shape)
  */
 
 export const DB_NAME = 'melody-db';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const KV_STORE = 'kv';
 export const SONGS_STORE = 'songs';
+export const PLAYLISTS_STORE = 'playlists';
 
 let dbPromise = null;
 
@@ -26,16 +28,32 @@ export function getDB() {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const tx = event.target.transaction;
 
       if (!db.objectStoreNames.contains(KV_STORE)) {
         db.createObjectStore(KV_STORE);
       }
 
+      let songsStore;
       if (!db.objectStoreNames.contains(SONGS_STORE)) {
-        const store = db.createObjectStore(SONGS_STORE, { keyPath: 'id' });
-        store.createIndex('dateAdded', 'dateAdded');
-        store.createIndex('artist', 'artist');
-        store.createIndex('album', 'album');
+        songsStore = db.createObjectStore(SONGS_STORE, { keyPath: 'id' });
+        songsStore.createIndex('dateAdded', 'dateAdded');
+        songsStore.createIndex('artist', 'artist');
+        songsStore.createIndex('album', 'album');
+      } else {
+        songsStore = tx.objectStore(SONGS_STORE);
+      }
+
+      // Added in v3 (Smart Library): genre/folder/play-count grouping +
+      // sorting need dedicated indexes so those tabs don't have to do a
+      // full table scan every render.
+      if (!songsStore.indexNames.contains('genre')) songsStore.createIndex('genre', 'genre');
+      if (!songsStore.indexNames.contains('folderPath')) songsStore.createIndex('folderPath', 'folderPath');
+      if (!songsStore.indexNames.contains('playCount')) songsStore.createIndex('playCount', 'playCount');
+
+      if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
+        const playlistsStore = db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
+        playlistsStore.createIndex('createdAt', 'createdAt');
       }
     };
 
