@@ -134,7 +134,6 @@
   position: fixed;
   left: 50%;
   bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--space-3));
-  transform: translateX(-50%);
   width: calc(100% - var(--space-6));
   max-width: calc(var(--max-width) - var(--space-6));
   display: flex;
@@ -146,6 +145,28 @@
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-lg);
   z-index: 40;
+
+  /* Hidden by default: slid down out of view and faded out. Kept in the
+     layout (no `display: none`) so the transform/opacity transition can
+     run in both directions instead of snapping. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, calc(100% + var(--space-4)));
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    opacity var(--duration-base) var(--ease-standard),
+    visibility 0s linear var(--duration-base);
+}
+.bulk-action-bar.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    opacity var(--duration-base) var(--ease-standard),
+    visibility 0s linear 0s;
 }
 .bulk-count {
   font-size: var(--text-sm);

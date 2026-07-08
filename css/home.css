@@ -206,6 +206,18 @@
   background: var(--color-card);
   border-top: 1px solid var(--color-divider);
   z-index: 20;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    opacity var(--duration-base) var(--ease-standard);
+}
+/* Collapsed while the Library's selection bar takes over the bottom of
+   the screen — slides down and fades out rather than popping away. */
+.bottom-nav.is-collapsed {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
 }
 
 .bottom-nav button {
