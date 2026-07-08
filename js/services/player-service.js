@@ -118,9 +118,47 @@ function ensureAudioCtx() {
     compressorNode.ratio.value = 6;
     compressorNode.attack.value = 0.01;
     compressorNode.release.value = 0.25;
+
+    // ROOT-CAUSE FIX (silent-but-playing bug): once createMediaElementSource()
+    // has captured a deck's output, that deck ONLY reaches speakers via this
+    // AudioContext's graph — the <audio> element itself keeps decoding,
+    // advancing currentTime, and firing play/timeupdate/ended events
+    // completely independently of the context's state. Android (and
+    // desktop Chrome) will suspend a running AudioContext out from under us
+    // at any time — screen lock, an incoming call/notification taking audio
+    // focus, a Bluetooth route change, the tab being backgrounded — without
+    // pausing the underlying media elements. Previously we only ever
+    // resumed the context at the moment a play() was initiated, so a
+    // mid-song suspension left the UI, progress bar, and Media Session all
+    // behaving normally while zero audio reached the output. We now listen
+    // for that transition and immediately try to self-heal.
+    audioCtx.addEventListener('statechange', () => {
+      if (audioCtx.state !== 'suspended') return;
+      const activeDeck = decks[active];
+      const shouldBeAudible = index >= 0 && !activeDeck.audio.paused && !activeDeck.audio.ended;
+      if (!shouldBeAudible) return; // suspension while nothing should be playing is fine — leave it
+      audioCtx.resume().catch((err) => {
+        console.warn('[Melody] Player: AudioContext dropped to "suspended" mid-playback and could not auto-resume.', err);
+      });
+    });
   } catch (err) {
     console.warn('[Melody] Player: Web Audio graph unavailable, using plain <audio> elements.', err);
   }
+}
+
+/**
+ * Cheap, frequent self-check for the "silently suspended" state described
+ * above. Called from the active deck's `timeupdate` (fires ~4x/sec during
+ * normal playback), so a mid-song context suspension that the `statechange`
+ * listener didn't catch (or a browser that fires it unreliably) gets
+ * corrected within a fraction of a second instead of leaving the user with
+ * dead air until they background/foreground the app or hit pause/play.
+ */
+function healAudioGraphIfSilentlyStuck() {
+  if (!audioCtx || audioCtx.state !== 'suspended') return;
+  const activeDeck = decks[active];
+  if (index < 0 || activeDeck.audio.paused || activeDeck.audio.ended) return;
+  audioCtx.resume().catch(() => {});
 }
 
 function ensureDeckGraph(deck) {
@@ -157,6 +195,23 @@ async function resumeAudioGraphIfNeeded() {
     try { await audioCtx.resume(); } catch (err) { console.warn('[Melody] Player: AudioContext resume failed.', err); }
   }
 }
+
+// Returning to the tab/app is another common point where the platform has
+// silently suspended the AudioContext (e.g. Android reclaiming audio focus
+// while the WebView was backgrounded). If a track is still nominally
+// "playing" per its <audio> element, resume the graph immediately instead
+// of waiting for the next play()/loadIndex() call.
+function resumeAudioGraphIfActiveDeckPlaying() {
+  const activeDeck = decks[active];
+  if (index >= 0 && !activeDeck.audio.paused && !activeDeck.audio.ended) {
+    resumeAudioGraphIfNeeded();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') resumeAudioGraphIfActiveDeckPlaying();
+});
+window.addEventListener('focus', resumeAudioGraphIfActiveDeckPlaying);
+window.addEventListener('pageshow', resumeAudioGraphIfActiveDeckPlaying);
 
 /** Defensive single-source guarantee: pause any other media on the page. */
 function ensureSingleSource() {
@@ -240,6 +295,7 @@ function snapshot() {
 
 function notify() {
   const state = snapshot();
+  syncMediaSessionPlaybackState(state);
   listeners.forEach((fn) => {
     try { fn(state); } catch (err) { console.error('[Melody] Player subscriber threw:', err); }
   });
@@ -793,6 +849,7 @@ decks.forEach((deck) => {
 
   a.addEventListener('timeupdate', () => {
     if (deck !== decks[active]) return;
+    healAudioGraphIfSilentlyStuck();
     notify();
     scheduleSave();
     maybeHandleTrackTransition();
@@ -920,6 +977,43 @@ function updateMediaSessionMetadata(song, artUrl) {
       { src: artUrl, sizes: '512x512', type: artUrl.startsWith('data:') ? 'image/svg+xml' : 'image/png' },
     ],
   });
+}
+
+// Previously the Android/lock-screen notification relied entirely on
+// Chrome's *implicit* association between the Media Session and whichever
+// <audio> element last called play() — we never set `playbackState` or
+// `setPositionState` ourselves. That mostly worked, but went stale in a
+// few real situations: swapping which of the two decks is "active" during
+// a crossfade, cancelling a crossfade, or recovering from the silent
+// AudioContext-suspended state above (the element was technically still
+// "playing" the whole time, so nothing ever told the OS the session's
+// position/state had moved). We now push both explicitly on every state
+// change (`notify()` fires on every play/pause/timeupdate/track-change),
+// so the notification is always a direct reflection of `snapshot()`
+// rather than something the browser is guessing at.
+function syncMediaSessionPlaybackState(state) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = state.index < 0
+      ? 'none'
+      : (state.isPlaying ? 'playing' : 'paused');
+  } catch (_) {}
+
+  if (typeof navigator.mediaSession.setPositionState !== 'function') return;
+  try {
+    if (state.index < 0 || !Number.isFinite(state.duration) || state.duration <= 0) {
+      navigator.mediaSession.setPositionState();
+      return;
+    }
+    navigator.mediaSession.setPositionState({
+      duration: state.duration,
+      playbackRate: state.playbackRate || 1,
+      position: Math.min(state.currentTime || 0, state.duration),
+    });
+  } catch (_) {
+    // Some platforms throw if position/duration momentarily disagree
+    // (e.g. right at a track boundary) — harmless, next tick corrects it.
+  }
 }
 
 if ('mediaSession' in navigator) {
