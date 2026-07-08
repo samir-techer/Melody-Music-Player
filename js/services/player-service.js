@@ -394,7 +394,22 @@ function cancelCrossfadeAndPreload() {
   crossfading = false;
   const inactive = decks[1 - active];
   try { inactive.audio.pause(); } catch (_) {}
-  if (inactive.gainNode) inactive.gainNode.gain.value = 1;
+
+  // ROOT-CAUSE FIX (silent/quiet-but-playing bug tied to crossfade): while
+  // a crossfade is running, the ACTIVE deck's gain is being ramped DOWN
+  // (1 -> 0) at the exact same time the inactive deck's is ramped UP
+  // (0 -> 1) — `active` doesn't flip to the new deck until the ramp
+  // finishes naturally in finishCrossfade(). If a crossfade gets
+  // interrupted here (skip/previous, a queue mutation, toggling shuffle,
+  // etc.) partway through, the deck that REMAINS active keeps whatever
+  // partial/zero gain value it had at that instant. Every track played
+  // afterward reuses that same deck/gain node, so it stays stuck at
+  // reduced or zero volume permanently — the <audio> element itself plays
+  // completely normally (events, currentTime, Media Session all correct),
+  // so there was no other signal anything was wrong. Resetting BOTH decks
+  // to unity gain here — not just the inactive one — is safe even when no
+  // crossfade was in progress (gain is already 1 in that case).
+  decks.forEach((d) => { if (d.gainNode) d.gainNode.gain.value = 1; });
 }
 
 /** Hard-cut load — used for manual navigation (skip/previous/queue tap/restore/error-recovery). */
@@ -794,6 +809,7 @@ async function beginCrossfade(nextIndex) {
     // crossfade this time, old deck keeps playing normally.
     console.warn('[Melody] Player: crossfade playback could not start — skipping the fade this time.', err);
     crossfading = false;
+    if (newDeck.gainNode) newDeck.gainNode.gain.value = 1; // leave the spare deck at unity, not the 0 we set a moment ago
     return;
   }
 
