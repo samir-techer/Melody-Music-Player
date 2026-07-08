@@ -77,6 +77,16 @@ const PLAYBACK_STATE_KEY = 'playbackState';
 const SETTINGS_KEY = 'playerSettings';
 const VALID_RATES = [0.75, 1, 1.25, 1.5, 2];
 
+// ---------- Temporary diagnostic instrumentation ----------
+// Sample console.log at every stage of the playback pipeline so a "no
+// audio output" report can be pinpointed to an exact stage instead of
+// guessed at. Safe to leave in (single console.log per event, no
+// behavioral effect) — flip AUDIO_DEBUG to false to silence.
+const AUDIO_DEBUG = true;
+function alog(...args) {
+  if (AUDIO_DEBUG) console.log('[Melody][AudioDebug]', ...args);
+}
+
 // ---------- Deck setup (two <audio> elements so we can crossfade/gapless) ----------
 
 function createDeck() {
@@ -109,6 +119,7 @@ function ensureAudioCtx() {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return; // very old browser — falls back to plain <audio>, still functional
     audioCtx = new Ctx();
+    alog('AudioContext created, initial state =', audioCtx.state);
     compressorNode = audioCtx.createDynamicsCompressor();
     // Gentle loudness-leveling defaults: pulls loud peaks down and lets
     // quiet passages sit closer to full scale, without being an obvious
@@ -133,6 +144,7 @@ function ensureAudioCtx() {
     // behaving normally while zero audio reached the output. We now listen
     // for that transition and immediately try to self-heal.
     audioCtx.addEventListener('statechange', () => {
+      alog('AudioContext statechange ->', audioCtx.state);
       if (audioCtx.state !== 'suspended') return;
       const activeDeck = decks[active];
       const shouldBeAudible = index >= 0 && !activeDeck.audio.paused && !activeDeck.audio.ended;
@@ -168,9 +180,11 @@ function ensureDeckGraph(deck) {
     deck.sourceNode = audioCtx.createMediaElementSource(deck.audio);
     deck.gainNode = audioCtx.createGain();
     deck.gainNode.gain.value = 1;
+    alog('Deck graph built: MediaElementSource + GainNode(1) created for deck', decks.indexOf(deck));
     wireDeckOutput(deck);
   } catch (err) {
     console.warn('[Melody] Player: could not build Web Audio graph for a deck.', err);
+    alog('ensureDeckGraph FAILED for deck', decks.indexOf(deck), '- falling back to direct <audio> output.', err);
   }
 }
 
@@ -184,15 +198,26 @@ function wireDeckOutput(deck) {
       compressorNode.connect(audioCtx.destination);
       compressorWired = true;
     }
+    alog('Deck', decks.indexOf(deck), 'wired -> compressor -> destination (gain =', deck.gainNode.gain.value, ')');
   } else {
     deck.gainNode.connect(audioCtx.destination);
+    alog('Deck', decks.indexOf(deck), 'wired -> destination directly (gain =', deck.gainNode.gain.value, ')');
   }
 }
 
 async function resumeAudioGraphIfNeeded() {
   ensureAudioCtx();
   if (audioCtx && audioCtx.state === 'suspended') {
-    try { await audioCtx.resume(); } catch (err) { console.warn('[Melody] Player: AudioContext resume failed.', err); }
+    alog('resumeAudioGraphIfNeeded: state is suspended, calling resume()...');
+    try {
+      await audioCtx.resume();
+      alog('resumeAudioGraphIfNeeded: resume() resolved, state is now', audioCtx.state);
+    } catch (err) {
+      console.warn('[Melody] Player: AudioContext resume failed.', err);
+      alog('resumeAudioGraphIfNeeded: resume() REJECTED, state is still', audioCtx.state, err);
+    }
+  } else if (audioCtx) {
+    alog('resumeAudioGraphIfNeeded: already', audioCtx.state, '- no resume needed');
   }
 }
 
@@ -390,6 +415,7 @@ async function loadQueueSilently(songs, startIndex, atTime) {
 
 /** Cancels any in-flight crossfade/preload — used before any manual navigation or queue mutation. */
 function cancelCrossfadeAndPreload() {
+  const wasCrossfading = crossfading;
   if (crossfadeRAF) { cancelAnimationFrame(crossfadeRAF); crossfadeRAF = null; }
   crossfading = false;
   const inactive = decks[1 - active];
@@ -410,6 +436,7 @@ function cancelCrossfadeAndPreload() {
   // to unity gain here — not just the inactive one — is safe even when no
   // crossfade was in progress (gain is already 1 in that case).
   decks.forEach((d) => { if (d.gainNode) d.gainNode.gain.value = 1; });
+  alog('cancelCrossfadeAndPreload: both decks gain reset to 1 (wasCrossfading =', wasCrossfading, ')');
 }
 
 /** Hard-cut load — used for manual navigation (skip/previous/queue tap/restore/error-recovery). */
@@ -446,6 +473,7 @@ async function loadIndex(newIndex, { autoplay }) {
     a.playbackRate = playbackRate;
     a.src = nextObjectUrl;
     a.load();
+    alog('loadIndex: src set for deck', decks.indexOf(deck), '- volume =', a.volume, 'muted =', a.muted, 'readyState =', a.readyState);
 
     // Only now that the new src is committed do we revoke the previous
     // one — revoking too early (or from a stale/overlapping call) can
@@ -480,6 +508,12 @@ async function loadIndex(newIndex, { autoplay }) {
       await resumeAudioGraphIfNeeded();
       if (myToken !== loadToken) return; // superseded while we awaited resume()
       await a.play();
+      alog(
+        'loadIndex: play() resolved for', song.title,
+        '| ctxState =', audioCtx ? audioCtx.state : '(no audioCtx)',
+        '| gain =', deck.gainNode ? deck.gainNode.gain.value : '(no gainNode)',
+        '| a.paused =', a.paused, '| a.volume =', a.volume, '| a.muted =', a.muted
+      );
     }
 
     if (myToken !== loadToken) return;
@@ -562,7 +596,13 @@ export async function play() {
   ensureSingleSource();
   ensureDeckGraph(deck);
   await resumeAudioGraphIfNeeded();
-  return deck.audio.play().catch((err) => {
+  return deck.audio.play().then(() => {
+    alog(
+      'play(): resolved | ctxState =', audioCtx ? audioCtx.state : '(no audioCtx)',
+      '| gain =', deck.gainNode ? deck.gainNode.gain.value : '(no gainNode)',
+      '| a.volume =', deck.audio.volume, '| a.muted =', deck.audio.muted
+    );
+  }).catch((err) => {
     console.error('[Melody] Player: play() rejected.', err);
     showToast("Playback couldn't start. Tap play again to retry.");
   });
@@ -816,6 +856,7 @@ async function beginCrossfade(nextIndex) {
   const durationMs = Math.max(200, crossfadeSeconds * 1000);
   const start = performance.now();
   const oldStartGain = oldDeck.gainNode ? oldDeck.gainNode.gain.value : 1;
+  alog('beginCrossfade: ramp starting | oldDeck', oldDeckIdx, 'gain', oldStartGain, '-> 0 | newDeck', newDeckIdx, 'gain 0 -> 1 over', durationMs, 'ms');
 
   function step(now) {
     const t = Math.min(1, (now - start) / durationMs);
@@ -839,6 +880,13 @@ function finishCrossfade(oldDeckIdx, newDeckIdx, nextIndex) {
   const oldDeck = decks[oldDeckIdx];
   try { oldDeck.audio.pause(); oldDeck.audio.currentTime = 0; } catch (_) {}
   if (oldDeck.gainNode) oldDeck.gainNode.gain.value = 1; // reset for whenever this deck is reused
+
+  const newDeck = decks[newDeckIdx];
+  alog(
+    'finishCrossfade: active now', newDeckIdx,
+    '| oldDeck gain reset to', oldDeck.gainNode ? oldDeck.gainNode.gain.value : '(n/a)',
+    '| newDeck (active) gain =', newDeck.gainNode ? newDeck.gainNode.gain.value : '(n/a)'
+  );
 
   consecutiveErrors = 0;
   const song = queue[index];
