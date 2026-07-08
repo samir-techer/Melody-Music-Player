@@ -64,10 +64,20 @@ async function tryGet(song) {
     if (song.duration) params.set('duration', String(Math.round(song.duration)));
 
     const res = await fetch(`${API_BASE}/get?${params.toString()}`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status !== 404) {
+        console.warn(`[Melody] Lyrics: LRCLIB /get returned ${res.status} for "${song.title}" — falling back to search.`);
+      }
+      return null;
+    }
     const data = await res.json();
     return toResult(data);
   } catch (err) {
+    // A thrown fetch almost always means no network reachability (or the
+    // request was blocked, e.g. by a restrictive embedding webview) —
+    // logged here since it looks identical to "not found" from the UI's
+    // "No synced lyrics available" message otherwise.
+    console.warn(`[Melody] Lyrics: network request failed for "${song.title}" — check the device has internet access.`, err);
     return null;
   }
 }

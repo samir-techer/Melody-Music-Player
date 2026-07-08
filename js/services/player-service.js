@@ -167,6 +167,30 @@ function ensureSingleSource() {
   });
 }
 
+// Some mobile browsers (notably iOS Safari, and some embedded WebViews)
+// require EACH <audio> element to individually receive a user gesture
+// at least once before JS-initiated play() calls on it are trusted —
+// interacting with one element doesn't "unlock" a sibling element. Since
+// the second deck is only ever played programmatically (during a
+// crossfade), we opportunistically prime both decks together the first
+// time the user actually taps play, so a later crossfade isn't silently
+// blocked by an un-primed second element.
+let decksUnlocked = false;
+async function unlockDecksIfNeeded() {
+  if (decksUnlocked) return;
+  decksUnlocked = true;
+  for (const deck of decks) {
+    try {
+      const wasMuted = deck.audio.muted;
+      deck.audio.muted = true;
+      await deck.audio.play().catch(() => {});
+      deck.audio.pause();
+      try { deck.audio.currentTime = 0; } catch (_) {}
+      deck.audio.muted = wasMuted;
+    } catch (_) {}
+  }
+}
+
 let queue = [];
 let index = -1;
 let currentArtUrl = DEFAULT_ART_URL;
@@ -184,7 +208,6 @@ let playbackRate = 1;
 let crossfadeSeconds = 0;
 let crossfading = false;
 let crossfadeRAF = null;
-let preloadedForIndex = -1; // which queue index is primed on the inactive deck, or -1
 
 const listeners = new Set();
 
@@ -283,6 +306,7 @@ export function isVolumeNormalizationOn() { return normalizationEnabled; }
  */
 export async function loadQueue(songs, startIndex = 0) {
   if (!Array.isArray(songs) || songs.length === 0) return;
+  unlockDecksIfNeeded();
   queue = songs.slice();
   consecutiveErrors = 0;
   rebuildShuffleOrder(startIndex);
@@ -306,7 +330,6 @@ function cancelCrossfadeAndPreload() {
   const inactive = decks[1 - active];
   try { inactive.audio.pause(); } catch (_) {}
   if (inactive.gainNode) inactive.gainNode.gain.value = 1;
-  preloadedForIndex = -1;
 }
 
 /** Hard-cut load — used for manual navigation (skip/previous/queue tap/restore/error-recovery). */
@@ -451,6 +474,7 @@ function handlePlaybackFailure(message, myToken) {
 // ---------- Transport ----------
 
 export async function play() {
+  unlockDecksIfNeeded();
   if (index === -1 && queue.length > 0) {
     return loadIndex(0, { autoplay: true });
   }
@@ -641,40 +665,32 @@ export function moveInQueue(from, to) {
   notify();
 }
 
-// ---------- Pass 6: automatic-advance transition (crossfade / gapless) ----------
+// ---------- Pass 6: automatic-advance transition (crossfade) ----------
+//
+// IMPORTANT: this only ever runs when the user has explicitly set a
+// Crossfade duration > 0 in Playback Options. At the default of 0,
+// `maybeHandleTrackTransition` is a no-op and the plain `ended` handler
+// below does a normal hard-cut `loadIndex()` — the same reliable,
+// single-deck-feeling path the app always used. An earlier version of
+// this file *always* pre-buffered the next track on the idle deck (even
+// with crossfade off, as a "gapless" optimization); that speculative
+// preloading is what caused real-device regressions (stutter, silence,
+// notification churn) and has been removed. Local blob playback has no
+// network buffering gap to begin with, so a plain hard-cut is already
+// effectively gapless.
 
-/** Called on every active-deck timeupdate to see if we should start preloading/crossfading. */
+/** Called on every active-deck timeupdate to see if a crossfade should begin. */
 function maybeHandleTrackTransition() {
-  if (crossfading || repeatMode === 'one') return;
+  if (crossfadeSeconds <= 0 || crossfading || repeatMode === 'one') return;
   const a = mainAudio();
   if (!Number.isFinite(a.duration) || a.duration <= 0) return;
 
   const remaining = a.duration - a.currentTime;
+  if (remaining > crossfadeSeconds || remaining <= 0.05) return;
+
   const nextIndex = computeNextIndexForAutoAdvance();
   if (nextIndex === null) return; // true end of queue, repeat off
-
-  if (crossfadeSeconds > 0) {
-    if (remaining <= crossfadeSeconds && remaining > 0.05) {
-      beginCrossfade(nextIndex);
-    }
-  } else {
-    // Gapless: prime the next track well before it's needed so the swap
-    // on `ended` doesn't pay for object-URL creation + decode warm-up.
-    if (remaining <= 3 && preloadedForIndex !== nextIndex) {
-      preloadGapless(nextIndex);
-    }
-  }
-}
-
-async function preloadGapless(nextIndex) {
-  const nextSong = queue[nextIndex];
-  if (!nextSong || !nextSong.blob) return;
-  preloadedForIndex = nextIndex;
-  const deck = decks[1 - active];
-  ensureDeckGraph(deck);
-  if (deck.gainNode) deck.gainNode.gain.value = 1;
-  const ok = await primeDeck(deck, nextSong);
-  if (!ok) preloadedForIndex = -1; // fall back to a normal hard-cut load on `ended`
+  beginCrossfade(nextIndex);
 }
 
 async function beginCrossfade(nextIndex) {
@@ -690,9 +706,13 @@ async function beginCrossfade(nextIndex) {
   ensureDeckGraph(oldDeck);
   ensureDeckGraph(newDeck);
 
-  if (preloadedForIndex !== nextIndex) {
-    const ok = await primeDeck(newDeck, nextSong);
-    if (!ok) { crossfading = false; return; }
+  const ok = await primeDeck(newDeck, nextSong);
+  if (!ok) {
+    // Couldn't prep the next track in time — abort quietly. The old deck
+    // just keeps playing to its own natural `ended`, which still advances
+    // normally via the plain hard-cut path below.
+    crossfading = false;
+    return;
   }
 
   if (newDeck.gainNode) newDeck.gainNode.gain.value = 0;
@@ -704,7 +724,10 @@ async function beginCrossfade(nextIndex) {
   try {
     await newDeck.audio.play();
   } catch (err) {
-    console.error('[Melody] Player: crossfade playback failed to start.', err);
+    // Some browsers won't allow a JS-initiated play() on a media element
+    // that's never directly received a user gesture. Fail safe: no
+    // crossfade this time, old deck keeps playing normally.
+    console.warn('[Melody] Player: crossfade playback could not start — skipping the fade this time.', err);
     crossfading = false;
     return;
   }
@@ -720,40 +743,15 @@ async function beginCrossfade(nextIndex) {
     if (t < 1) {
       crossfadeRAF = requestAnimationFrame(step);
     } else {
-      finishTransition(oldDeckIdx, newDeckIdx, nextIndex);
+      finishCrossfade(oldDeckIdx, newDeckIdx, nextIndex);
     }
   }
   crossfadeRAF = requestAnimationFrame(step);
 }
 
-/** Instant deck swap for the gapless path — the next deck is already primed and playing-ready. */
-async function swapToPreloadedDeck(nextIndex) {
-  const oldDeckIdx = active;
-  const newDeckIdx = 1 - active;
-  const newDeck = decks[newDeckIdx];
-
-  ensureDeckGraph(newDeck);
-  if (newDeck.gainNode) newDeck.gainNode.gain.value = 1;
-  try { newDeck.audio.currentTime = 0; } catch (_) {}
-  newDeck.audio.playbackRate = playbackRate;
-
-  await resumeAudioGraphIfNeeded();
-  ensureSingleSource();
-  try {
-    await newDeck.audio.play();
-  } catch (err) {
-    console.error('[Melody] Player: gapless swap failed to start — falling back to a normal load.', err);
-    active = oldDeckIdx;
-    return loadIndex(nextIndex, { autoplay: true });
-  }
-
-  finishTransition(oldDeckIdx, newDeckIdx, nextIndex);
-}
-
-function finishTransition(oldDeckIdx, newDeckIdx, nextIndex) {
+function finishCrossfade(oldDeckIdx, newDeckIdx, nextIndex) {
   crossfading = false;
   crossfadeRAF = null;
-  preloadedForIndex = -1;
   active = newDeckIdx;
   index = nextIndex;
 
@@ -821,11 +819,10 @@ decks.forEach((deck) => {
       return;
     }
 
-    if (preloadedForIndex === nextIndex) {
-      swapToPreloadedDeck(nextIndex);
-    } else {
-      loadIndex(nextIndex, { autoplay: true });
-    }
+    // Plain hard-cut. (If crossfade was on and already handed off to the
+    // other deck, `deck !== decks[active]` above will have already
+    // skipped this — this only runs for a normal, un-crossfaded end.)
+    loadIndex(nextIndex, { autoplay: true });
   });
 
   a.addEventListener('error', () => {
