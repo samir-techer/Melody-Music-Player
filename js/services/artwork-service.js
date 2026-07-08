@@ -40,17 +40,41 @@ export async function getArtworkUrl(song) {
 
   let url = null;
   try {
-    if (isMp3(song)) {
+    if (song.coverArt) {
+      url = URL.createObjectURL(song.coverArt);
+    } else if (isMp3(song)) {
       const blob = await extractId3Apic(song.blob);
       if (blob) url = URL.createObjectURL(blob);
     }
   } catch (err) {
-    console.warn(`[Melody] Artwork extraction failed for "${song.title}" — using placeholder.`, err);
+    console.warn(`[Melody] Artwork extraction failed for "${song.title}" - using placeholder.`, err);
   }
 
   const resolved = url || DEFAULT_ART_URL;
   artUrlCache.set(song.id, resolved);
   return resolved;
+}
+
+export async function getEmbeddedArtworkBlob(song) {
+  if (!song || !isMp3(song)) return null;
+  try {
+    return await extractId3Apic(song.blob);
+  } catch (err) {
+    console.warn(`[Melody] Embedded artwork extraction failed for "${song.title}".`, err);
+    return null;
+  }
+}
+
+function invalidateArtworkCacheInternal(songId) {
+  const existing = artUrlCache.get(songId);
+  if (existing && existing.startsWith('blob:')) {
+    try { URL.revokeObjectURL(existing); } catch (err) { /* already revoked, ignore */ }
+  }
+  artUrlCache.delete(songId);
+}
+
+export function invalidateArtworkCache(songId) {
+  invalidateArtworkCacheInternal(songId);
 }
 
 function isMp3(song) {
@@ -80,7 +104,10 @@ async function extractId3Apic(blob) {
  * Never throws: any parse failure just yields an all-null result.
  */
 export async function getEmbeddedTags(song) {
-  const empty = { title: null, artist: null, album: null };
+  const empty = {
+    title: null, artist: null, album: null, albumArtist: null, genre: null,
+    year: null, trackNumber: null, discNumber: null, composer: null, comment: null,
+  };
   if (!song || !isMp3(song)) return empty;
 
   try {
@@ -88,14 +115,46 @@ export async function getEmbeddedTags(song) {
     if (!frames) return empty;
 
     const find = (id) => frames.find((f) => f.frameId === id);
-    const title = parseTextFrame(find('TIT2'));
-    const artist = parseTextFrame(find('TPE1'));
-    const album = parseTextFrame(find('TALB'));
-
-    return { title, artist, album };
+    return {
+      title: parseTextFrame(find('TIT2')),
+      artist: parseTextFrame(find('TPE1')),
+      album: parseTextFrame(find('TALB')),
+      albumArtist: parseTextFrame(find('TPE2')),
+      genre: parseTextFrame(find('TCON')),
+      year: parseTextFrame(find('TYER')) || parseTextFrame(find('TDRC')),
+      trackNumber: parseTextFrame(find('TRCK')),
+      discNumber: parseTextFrame(find('TPOS')),
+      composer: parseTextFrame(find('TCOM')),
+      comment: parseCommentFrame(find('COMM')),
+    };
   } catch (err) {
     console.warn(`[Melody] ID3 text tag extraction failed for "${song.title}".`, err);
     return empty;
+  }
+}
+
+function parseCommentFrame(frame) {
+  if (!frame) return null;
+  const bytes = new Uint8Array(frame.buffer, frame.start, frame.size);
+  if (bytes.length < 5) return null;
+
+  const encoding = bytes[0];
+  const isUtf16 = encoding === 1 || encoding === 2;
+  let i = 4;
+  i = isUtf16 ? indexOfDoubleNull(bytes, i) + 2 : indexOfNull(bytes, i) + 1;
+  if (i <= 0 || i > bytes.length) return null;
+
+  const textBytes = bytes.slice(i);
+  try {
+    const text = encoding === 0
+      ? new TextDecoder('iso-8859-1').decode(textBytes)
+      : encoding === 3
+        ? new TextDecoder('utf-8').decode(textBytes)
+        : new TextDecoder('utf-16').decode(textBytes);
+    const trimmed = text.replace(/\u0000+$/g, '').trim();
+    return trimmed || null;
+  } catch (err) {
+    return null;
   }
 }
 

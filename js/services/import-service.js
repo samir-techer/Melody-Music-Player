@@ -54,17 +54,28 @@ export async function importFiles(files, options = {}) {
       // future pass, but embedded tags are already sitting in the file
       // and cost nothing extra to read during import.
       const tags = await getEmbeddedTags({ fileName: file.name, mimeType: file.type, blob: file, title: guessedTitle })
-        .catch(() => ({ title: null, artist: null, album: null }));
+        .catch(() => ({}));
 
       const usedTags = Boolean(tags.title || tags.artist || tags.album);
+      const folderPath = file.webkitRelativePath
+        ? (file.webkitRelativePath.split('/').slice(0, -1).join('/') || 'On My Device')
+        : 'On My Device';
 
       const candidate = {
         id: crypto.randomUUID(),
         title: tags.title || guessedTitle,
         artist: tags.artist || guessedArtist || 'Unknown Artist',
         album: tags.album || 'Unknown Album',
+        albumArtist: tags.albumArtist || '',
+        genre: tags.genre || '',
+        year: tags.year || '',
+        trackNumber: tags.trackNumber || '',
+        discNumber: tags.discNumber || '',
+        composer: tags.composer || '',
+        comment: tags.comment || '',
         duration,
         fileName: file.name,
+        folderPath,
         mimeType: file.type || guessMimeType(file.name),
         blob: file,
         coverArt: null,

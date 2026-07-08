@@ -51,7 +51,7 @@ import { getArtworkUrl, DEFAULT_ART_URL } from './artwork-service.js';
 import { showToast } from '../utils/toast.js';
 import { getItem, setItem } from '../utils/storage.js';
 import { recordPlay } from './history-service.js';
-import { getSong } from './library-service.js';
+import { getSong, incrementPlayCount } from './library-service.js';
 
 const PLAYBACK_STATE_KEY = 'playbackState';
 
@@ -457,6 +457,7 @@ audio.addEventListener('playing', () => {
   if (lastRecordedSongId !== song.id) {
     lastRecordedSongId = song.id;
     recordPlay(song.id);
+    incrementPlayCount(song.id).catch((err) => console.error('[Melody] Play count update failed.', err));
   }
 });
 
