@@ -1,0 +1,308 @@
+/* ==========================================================================
+   MELODY — NOW PLAYING
+   All values reference the existing tokens in css/tokens.css — no new
+   colors, radii, or shadows introduced here.
+   ========================================================================== */
+
+.player-screen {
+  justify-content: flex-start;
+  gap: var(--space-6);
+}
+
+.player-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.player-topbar button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--color-text-secondary);
+}
+
+.player-topbar-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.player-topbar-spacer { width: 40px; }
+#queue-toggle { font-size: 18px; }
+
+/* ---------- Vinyl + album art ---------- */
+
+.vinyl-stage {
+  position: relative;
+  width: 78%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  margin: var(--space-4) auto;
+}
+
+.vinyl-disc {
+  position: absolute;
+  top: 8%;
+  right: -12%;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: repeating-radial-gradient(
+    circle at center,
+    var(--color-accent) 0px,
+    var(--color-accent) 8px,
+    #3a3632 9px,
+    var(--color-accent) 10px
+  );
+  box-shadow: var(--shadow-md);
+  /* Always running, just paused/resumed — animation-play-state keeps the
+     current rotation frame, so pausing/resuming (or navigating away and
+     back) never snaps the disc back to 0deg. Toggling `animation` itself
+     on/off (the old approach) loses that angle every time. */
+  animation: vinyl-spin 3.2s linear infinite;
+  animation-play-state: paused;
+}
+
+.vinyl-disc.spinning {
+  animation-play-state: running;
+}
+
+.album-art {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 88%;
+  height: 88%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-lg);
+  transform: scale(1);
+  transition: transform var(--duration-slow) var(--ease-standard);
+  view-transition-name: melody-album-art;
+}
+
+.album-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Subtle "breathing" scale while a track is actively playing — stops
+   cleanly (returns to scale(1)) the instant playback pauses. */
+.album-art.breathing {
+  animation: album-breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes album-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-disc { animation: none; }
+  .album-art.breathing { animation: none; }
+}
+
+/* ---------- Song info ---------- */
+
+.now-playing-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.now-playing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.now-playing-info h1 {
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+}
+
+.now-playing-info p {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* ---------- Seek bar ---------- */
+
+.seek-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+#seek-bar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-divider);
+  outline: none;
+}
+
+#seek-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+#seek-bar::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.seek-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Transport controls ---------- */
+
+.transport-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.transport-controls button {
+  color: var(--color-text-primary);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.transport-controls button:active {
+  transform: scale(0.9);
+}
+
+.transport-controls .play-pause {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 22px;
+  box-shadow: var(--shadow-md);
+}
+
+/* Animated play/pause: both glyphs stacked, crossfaded + scaled on toggle
+   instead of an instant textContent swap. */
+.play-pause .ppicon {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-out);
+}
+.play-pause .play-glyph { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.play-pause.is-playing .play-glyph { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+.play-pause.is-playing .pause-glyph { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.secondary-control {
+  font-size: 17px;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+.secondary-control.active {
+  color: var(--color-text-primary);
+  opacity: 1;
+}
+
+/* ---------- Queue sheet ---------- */
+.queue-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  max-height: 60vh;
+  background: var(--color-card);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  padding-bottom: calc(var(--space-4) + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 30;
+  transform: translateY(0);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.queue-sheet[hidden] { display: none; }
+
+.queue-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.queue-sheet-header h2 { font-size: var(--text-md); }
+.queue-sheet-header button { font-size: 16px; color: var(--color-text-secondary); }
+
+.queue-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.queue-row.current { background: var(--color-accent-softer); }
+.queue-row .info .title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px;
+}
+.queue-row .info .meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+.queue-remove {
+  width: 32px; height: 32px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}

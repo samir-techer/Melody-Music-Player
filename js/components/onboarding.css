@@ -1,0 +1,103 @@
+/* ==========================================================================
+   MELODY — ONBOARDING (nickname capture + one-time greeting)
+   ========================================================================== */
+
+.onboarding-screen {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-6);
+  animation: fade-in var(--duration-slow) var(--ease-out);
+}
+
+.onboarding-mark {
+  width: 72px;
+  height: 72px;
+}
+
+.onboarding-copy h1 {
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--space-2);
+}
+
+.onboarding-copy .eyebrow {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: var(--space-3);
+}
+
+.onboarding-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.onboarding-form .hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-align: left;
+  padding-left: var(--space-1);
+}
+
+.onboarding-form .text-input {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+/* ---------- Greeting screen (shown exactly once) ---------- */
+
+.greeting-screen {
+  justify-content: space-between;
+  background: var(--color-bg);
+}
+
+.greeting-screen .vinyl-decor {
+  align-self: center;
+  width: 180px;
+  height: 180px;
+  opacity: 0.9;
+  animation: vinyl-spin 24s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .greeting-screen .vinyl-decor { animation: none; }
+}
+
+.greeting-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+
+.greeting-body h1 {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.greeting-body p {
+  font-size: var(--text-md);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-normal);
+}
+
+.greeting-body p.emphasis {
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

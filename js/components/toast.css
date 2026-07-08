@@ -1,0 +1,31 @@
+/* ==========================================================================
+   MELODY — TOAST
+   Uses existing design tokens only; no new colors or shadows introduced.
+   ========================================================================== */
+
+#melody-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--space-4));
+  transform: translate(-50%, 12px);
+  max-width: calc(var(--max-width) - var(--space-6));
+  width: max-content;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 50;
+  transition: opacity var(--duration-base) var(--ease-standard),
+              transform var(--duration-base) var(--ease-out);
+  text-align: center;
+}
+
+#melody-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
