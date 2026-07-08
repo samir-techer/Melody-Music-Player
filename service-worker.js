@@ -4,18 +4,9 @@
  * Song files themselves will be cached separately by the (upcoming)
  * library/import service using the Cache Storage API or IndexedDB blobs —
  * this worker only owns the static shell for now.
- *
- * NOTE ON CACHE VERSIONING: the browser only re-runs `install` (and thus
- * only re-fetches everything in APP_SHELL) when this file's bytes change.
- * That means every time shell files (any .js/.css under js/ or css/) are
- * updated, CACHE_NAME below MUST be bumped too — otherwise a device that
- * already has Melody installed keeps serving its old cached copies
- * forever, silently ignoring the new files. (This bit us once already:
- * a Pass 6 player-engine update shipped without a version bump, so some
- * installs kept running a stale mix of old/new player code.)
  */
 
-const CACHE_NAME = 'melody-shell-v7'; // bumped: Pass 6 lyrics/sleep-timer/crossfade files + player engine fix
+const CACHE_NAME = 'melody-shell-v6'; // bumped: added Melody Premium screen (preview, no payments)
 
 const APP_SHELL = [
   './',
@@ -43,8 +34,6 @@ const APP_SHELL = [
   './js/services/artwork-service.js',
   './js/services/favorites-service.js',
   './js/services/history-service.js',
-  './js/services/lyrics-service.js',
-  './js/services/sleep-timer-service.js',
   './js/components/nickname-screen.js',
   './js/components/greeting-screen.js',
   './js/components/home-screen.js',
@@ -78,16 +67,8 @@ self.addEventListener('activate', (event) => {
 });
 
 // Cache-first for the app shell, network fallback for anything uncached.
-// Cross-origin requests (e.g. the LRCLIB lyrics API) are explicitly left
-// alone and passed straight through to the network — this worker has no
-// business caching or interfering with third-party API calls, and an
-// unnecessary respondWith() wrapper around them was a needless place for
-// those requests to misbehave.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return; // let the browser handle it directly
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
@@ -96,4 +77,3 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-
