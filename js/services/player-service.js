@@ -172,23 +172,32 @@ function ensureSingleSource() {
 // at least once before JS-initiated play() calls on it are trusted —
 // interacting with one element doesn't "unlock" a sibling element. Since
 // the second deck is only ever played programmatically (during a
-// crossfade), we opportunistically prime both decks together the first
-// time the user actually taps play, so a later crossfade isn't silently
-// blocked by an un-primed second element.
+// crossfade), we opportunistically prime it during the user's first real
+// tap of Play, so a later crossfade isn't silently blocked by an
+// un-primed second element.
+//
+// CRITICAL: this must only ever touch the deck that is NOT about to
+// receive the real, upcoming loadIndex()/play() call — never the active
+// one. An earlier version of this looped over BOTH decks and wasn't
+// awaited before the caller went on to load the real track, which meant
+// this routine's own play() -> pause() -> currentTime=0 sequence could
+// land on the live deck a moment AFTER the real song had already started,
+// silently pausing/rewinding it. That produced exactly the "starts, then
+// goes silent / keeps restarting" symptom. Now it only ever touches the
+// idle deck, and every caller awaits it before doing anything else.
 let decksUnlocked = false;
 async function unlockDecksIfNeeded() {
   if (decksUnlocked) return;
   decksUnlocked = true;
-  for (const deck of decks) {
-    try {
-      const wasMuted = deck.audio.muted;
-      deck.audio.muted = true;
-      await deck.audio.play().catch(() => {});
-      deck.audio.pause();
-      try { deck.audio.currentTime = 0; } catch (_) {}
-      deck.audio.muted = wasMuted;
-    } catch (_) {}
-  }
+  const idleDeck = decks[1 - active];
+  try {
+    const wasMuted = idleDeck.audio.muted;
+    idleDeck.audio.muted = true;
+    await idleDeck.audio.play().catch(() => {});
+    idleDeck.audio.pause();
+    try { idleDeck.audio.currentTime = 0; } catch (_) {}
+    idleDeck.audio.muted = wasMuted;
+  } catch (_) {}
 }
 
 let queue = [];
@@ -306,7 +315,7 @@ export function isVolumeNormalizationOn() { return normalizationEnabled; }
  */
 export async function loadQueue(songs, startIndex = 0) {
   if (!Array.isArray(songs) || songs.length === 0) return;
-  unlockDecksIfNeeded();
+  await unlockDecksIfNeeded();
   queue = songs.slice();
   consecutiveErrors = 0;
   rebuildShuffleOrder(startIndex);
@@ -474,7 +483,7 @@ function handlePlaybackFailure(message, myToken) {
 // ---------- Transport ----------
 
 export async function play() {
-  unlockDecksIfNeeded();
+  await unlockDecksIfNeeded();
   if (index === -1 && queue.length > 0) {
     return loadIndex(0, { autoplay: true });
   }
