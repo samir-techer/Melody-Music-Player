@@ -195,28 +195,42 @@ export async function renderPlayerScreen() {
 
   // ---------- Single RAF loop: smooth seek bar + progress fill + vinyl
   // rotation + lyric highlight, all driven off one shared clock. ----------
+  let vinylAtRest = true;
+  let lastShownSecond = -1;
+
   function frameLoop(now) {
     rafId = requestAnimationFrame(frameLoop);
     const dt = Math.min(64, now - lastFrameTime); // clamp so a tab-switch pause doesn't cause a huge jump
     lastFrameTime = now;
 
+    const displayTime = latestState ? getDisplayTime() : 0;
+
     if (latestState && !isDraggingSeek) {
-      const estimated = getDisplayTime();
-      seekBar.value = estimated;
-      currentTimeEl.textContent = formatTime(estimated);
-      updateSeekFill(estimated, latestState.duration);
+      seekBar.value = displayTime;
+      updateSeekFill(displayTime, latestState.duration);
+      const wholeSecond = Math.floor(displayTime);
+      if (wholeSecond !== lastShownSecond) {
+        lastShownSecond = wholeSecond;
+        currentTimeEl.textContent = formatTime(displayTime);
+      }
     }
 
     if (!reduceMotion) {
       const target = (latestState && latestState.isPlaying) ? VINYL_TARGET_SPEED : 0;
-      const rampMs = target > vinylSpeed ? 700 : 900; // slightly snappier spin-up than spin-down
-      const lerp = rampMs > 0 ? Math.min(1, dt / rampMs) : 1;
-      vinylSpeed += (target - vinylSpeed) * lerp;
-      vinylAngle = (vinylAngle + vinylSpeed * dt) % 360;
-      disc.style.transform = `rotate(${vinylAngle}deg)`;
+      // Skip the write entirely once the disc is fully stopped and staying
+      // stopped — no point re-setting an identical transform 60x/sec.
+      if (target !== 0 || vinylSpeed !== 0 || !vinylAtRest) {
+        const rampMs = target > vinylSpeed ? 700 : 900; // slightly snappier spin-up than spin-down
+        const lerp = rampMs > 0 ? Math.min(1, dt / rampMs) : 1;
+        vinylSpeed += (target - vinylSpeed) * lerp;
+        if (Math.abs(vinylSpeed) < 0.0002 && target === 0) vinylSpeed = 0;
+        vinylAngle = (vinylAngle + vinylSpeed * dt) % 360;
+        disc.style.transform = `rotate(${vinylAngle}deg)`;
+        vinylAtRest = vinylSpeed === 0;
+      }
     }
 
-    updateLyricsHighlight(getDisplayTime());
+    updateLyricsHighlight(displayTime);
   }
   rafId = requestAnimationFrame(frameLoop);
 
