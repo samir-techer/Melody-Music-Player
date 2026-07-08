@@ -33,12 +33,8 @@
   letter-spacing: var(--tracking-wide);
 }
 
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-#queue-toggle, #playback-options-toggle { font-size: 18px; }
+.player-topbar-spacer { width: 40px; }
+#queue-toggle { font-size: 18px; }
 
 /* ---------- Vinyl + album art ---------- */
 
@@ -65,10 +61,16 @@
     var(--color-accent) 10px
   );
   box-shadow: var(--shadow-md);
-  /* Rotation is driven frame-by-frame from JS (see player-screen.js) so
-     the disc can physically ease its spin speed up on play and down on
-     pause, instead of an abrupt CSS animation start/stop. */
-  will-change: transform;
+  /* Always running, just paused/resumed — animation-play-state keeps the
+     current rotation frame, so pausing/resuming (or navigating away and
+     back) never snaps the disc back to 0deg. Toggling `animation` itself
+     on/off (the old approach) loses that angle every time. */
+  animation: vinyl-spin 3.2s linear infinite;
+  animation-play-state: paused;
+}
+
+.vinyl-disc.spinning {
+  animation-play-state: running;
 }
 
 .album-art {
@@ -77,30 +79,6 @@
   left: 0;
   width: 88%;
   height: 88%;
-}
-
-/* A soft, blurred "contact shadow" beneath the artwork — separate from
-   the card's own box-shadow — so it reads as floating above the vinyl. */
-.album-art-shadow {
-  position: absolute;
-  left: 6%;
-  right: 6%;
-  bottom: -10px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(31, 31, 31, 0.24);
-  filter: blur(10px);
-  opacity: 0.6;
-  z-index: 0;
-}
-[data-theme="dark"] .album-art-shadow {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.album-art-inner {
-  position: relative;
-  width: 100%;
-  height: 100%;
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--color-bg-secondary);
@@ -108,27 +86,23 @@
   transform: scale(1);
   transition: transform var(--duration-slow) var(--ease-standard);
   view-transition-name: melody-album-art;
-  z-index: 1;
 }
 
-/* Two stacked layers crossfade into each other whenever the track
-   changes, instead of the artwork snapping instantly (see setAlbumArt
-   in player-screen.js). */
-.art-layer {
-  position: absolute;
-  inset: 0;
+.album-art img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
-  transition: opacity var(--duration-slow) var(--ease-standard);
 }
-.art-layer.active { opacity: 1; }
 
 /* Subtle "breathing" scale while a track is actively playing — stops
    cleanly (returns to scale(1)) the instant playback pauses. */
-.album-art-inner.breathing {
+.album-art.breathing {
   animation: album-breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 @keyframes album-breathe {
@@ -137,7 +111,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .album-art-inner.breathing { animation: none; }
+  .vinyl-disc { animation: none; }
+  .album-art.breathing { animation: none; }
 }
 
 /* ---------- Song info ---------- */
@@ -166,20 +141,6 @@
   font-size: var(--text-sm);
 }
 
-/* Heart "pop" burst when a song is favorited from the Player screen. */
-@keyframes heart-pop {
-  0%   { transform: scale(1); }
-  30%  { transform: scale(1.55); }
-  55%  { transform: scale(0.92); }
-  100% { transform: scale(1); }
-}
-.favorite-btn.pop {
-  animation: heart-pop 480ms var(--ease-out);
-}
-@media (prefers-reduced-motion: reduce) {
-  .favorite-btn.pop { animation: none; }
-}
-
 /* ---------- Seek bar ---------- */
 
 .seek-area {
@@ -194,17 +155,7 @@
   width: 100%;
   height: 4px;
   border-radius: var(--radius-full);
-  /* Filled progress track: --progress is kept in sync (0%-100%) every
-     animation frame from player-screen.js so the bar shows played vs.
-     remaining time, not just a bare thumb on a flat line. */
-  --progress: 0%;
-  background: linear-gradient(
-    to right,
-    var(--color-accent) 0%,
-    var(--color-accent) var(--progress),
-    var(--color-divider) var(--progress),
-    var(--color-divider) 100%
-  );
+  background: var(--color-divider);
   outline: none;
 }
 
@@ -217,9 +168,7 @@
   background: var(--color-accent);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-fast) var(--ease-standard);
 }
-#seek-bar:active::-webkit-slider-thumb { transform: scale(1.25); }
 
 #seek-bar::-moz-range-thumb {
   width: 14px;
@@ -229,13 +178,6 @@
   background: var(--color-accent);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-fast) var(--ease-standard);
-}
-#seek-bar:active::-moz-range-thumb { transform: scale(1.25); }
-#seek-bar::-moz-range-progress {
-  height: 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
 }
 
 .seek-times {
@@ -244,54 +186,6 @@
   font-size: var(--text-xs);
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-
-/* ---------- Synced lyrics ---------- */
-
-.lyrics-panel {
-  position: relative;
-  height: 132px;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, black 20px, black calc(100% - 20px), transparent 100%);
-}
-
-.lyrics-scroll {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-5) var(--space-3);
-  text-align: center;
-}
-.lyrics-scroll::-webkit-scrollbar { display: none; }
-
-.lyrics-line {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  opacity: 0.55;
-  transform: scale(0.97);
-  transition: opacity var(--duration-base) var(--ease-standard),
-              color var(--duration-base) var(--ease-standard),
-              transform var(--duration-base) var(--ease-standard);
-}
-.lyrics-line.active {
-  color: var(--color-text-primary);
-  font-weight: 600;
-  opacity: 1;
-  transform: scale(1.04);
-}
-
-.lyrics-status {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  margin: auto;
-  text-align: center;
 }
 
 /* ---------- Transport controls ---------- */
@@ -352,7 +246,7 @@
   opacity: 1;
 }
 
-/* ---------- Queue sheet (also the base look for the Playback Options sheet) ---------- */
+/* ---------- Queue sheet ---------- */
 .queue-sheet {
   position: fixed;
   left: 0; right: 0; bottom: 0;
@@ -412,108 +306,3 @@
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-
-/* ---------- Playback Options sheet ---------- */
-.playback-options-sheet {
-  overflow-y: auto;
-}
-
-.option-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-divider);
-}
-.option-group:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.option-label {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.option-label-row, .option-row-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-.option-value {
-  color: var(--color-text-secondary);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.option-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.chip-row {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.chip {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard);
-}
-.chip.active { background: var(--color-accent); color: var(--color-bg); }
-.chip:active { transform: scale(0.94); }
-
-#crossfade-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-divider);
-  outline: none;
-}
-#crossfade-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px; height: 14px;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-}
-#crossfade-slider::-moz-range-thumb {
-  width: 14px; height: 14px;
-  border: none;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-}
-
-.switch {
-  position: relative;
-  width: 44px; height: 26px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-secondary);
-  transition: background-color var(--duration-fast) var(--ease-standard);
-  flex-shrink: 0;
-}
-.switch .switch-knob {
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: var(--color-card);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-fast) var(--ease-out);
-}
-.switch.active { background: var(--color-accent); }
-.switch.active .switch-knob { transform: translateX(18px); }
