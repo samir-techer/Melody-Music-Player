@@ -1,0 +1,509 @@
+/* ==========================================================================
+   MELODY - SMART LIBRARY / MUSIC HUB / METADATA EDITOR
+   All values reference existing tokens - no new colors or shadows introduced.
+   ========================================================================== */
+
+/* ---------- Grouped tabs: Albums / Artists / Genres / Folders ---------- */
+.grid-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.grid-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.grid-link .icon {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+.grid-link:active { background: var(--color-accent-softer); }
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-6) var(--space-3);
+  color: var(--color-text-secondary);
+}
+.empty-state .title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
+}
+
+/* ---------- Library header + select toggle ---------- */
+.library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.select-toggle-btn {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-card);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.select-toggle-btn.active {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* ---------- Search + sort bar ---------- */
+.library-search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-card);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-3);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-secondary);
+}
+.library-search-bar input[type="search"] {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+}
+.library-search-bar select {
+  border: none;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+}
+
+/* ---------- Multi-select song rows ---------- */
+.song-row.select-mode {
+  padding-left: var(--space-1);
+}
+.select-checkbox {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--color-divider);
+  background: var(--color-card);
+  color: var(--color-bg);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.song-row.selected .select-checkbox {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-bg);
+}
+.song-row.selected {
+  background: var(--color-accent-softer);
+  border-radius: var(--radius-md);
+}
+
+.row-play-btn {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+.row-play-btn:active { transform: scale(0.9); }
+
+/* ---------- Bulk action bar ---------- */
+.bulk-action-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--space-3));
+  transform: translateX(-50%);
+  width: calc(100% - var(--space-6));
+  max-width: calc(var(--max-width) - var(--space-6));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  z-index: 40;
+}
+.bulk-count {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.bulk-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.bulk-actions button {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(245, 241, 236, 0.12);
+  color: var(--color-bg);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bulk-actions button.danger {
+  background: var(--color-heart);
+  color: #fff;
+}
+
+/* ==========================================================================
+   Sheets / modals (Add to Playlist, Cover Art Finder, Crop)
+   ========================================================================== */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+.sheet {
+  width: 100%;
+  max-width: var(--max-width);
+  background: var(--color-bg);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: var(--space-3) var(--space-4) calc(var(--space-5) + var(--safe-bottom));
+  box-shadow: var(--shadow-lg);
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.sheet-handle {
+  width: 40px; height: 4px;
+  background: var(--color-divider);
+  border-radius: var(--radius-full);
+  margin: 0 auto var(--space-3);
+}
+.sheet h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-3);
+}
+.sheet-empty {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  padding: var(--space-3) 0;
+}
+.sheet-playlist-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.sheet-playlist-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.sheet-playlist-row .count {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-size: var(--text-xs);
+}
+.sheet-new-playlist {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.sheet-new-playlist input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
+}
+.sheet-new-playlist button {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.sheet-close {
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+/* Cover Art Finder grid */
+.coverart-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.coverart-option {
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.coverart-option img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Crop tool */
+.crop-sheet { text-align: center; }
+.crop-viewport {
+  margin: 0 auto var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  position: relative;
+  touch-action: none;
+}
+.crop-viewport img {
+  position: absolute;
+  top: 0; left: 0;
+  max-width: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+#crop-zoom {
+  width: 100%;
+  margin-bottom: var(--space-3);
+}
+
+/* ==========================================================================
+   Music Hub
+   ========================================================================== */
+.hub-header { padding-bottom: 0; }
+
+.hub-art-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: var(--space-2) auto var(--space-3);
+}
+.hub-art {
+  width: 100%; height: 100%;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  background: var(--color-bg-secondary);
+}
+.hub-art img { width: 100%; height: 100%; object-fit: cover; }
+
+.hub-play-btn {
+  position: absolute;
+  right: -8px; bottom: -8px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+}
+.hub-play-btn span { transform: translateX(2px); }
+
+.hub-titles {
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+.hub-titles h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+}
+.hub-artist {
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  margin-top: var(--space-1);
+}
+
+.hub-quick-actions {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: var(--space-5);
+}
+.hub-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.hub-action .glyph {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--color-card);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+.hub-action.is-favorite .glyph { color: var(--color-heart); }
+
+.hub-details h2, .hub-lyrics h2 {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+.hub-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3);
+}
+.hub-detail-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hub-detail-grid .label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+.hub-detail-grid .value {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.hub-lyrics-content {
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
+}
+.hub-lyrics-loading, .hub-lyrics-empty {
+  color: var(--color-text-secondary);
+}
+.synced-lyrics p {
+  padding: 4px 0;
+  color: var(--color-text-secondary);
+}
+
+/* ==========================================================================
+   Metadata Editor
+   ========================================================================== */
+.editor-art-wrap {
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+.editor-art {
+  width: 160px; height: 160px;
+  margin: 0 auto var(--space-2);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  background: var(--color-bg-secondary);
+}
+.editor-art img { width: 100%; height: 100%; object-fit: cover; }
+.editor-art-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.editor-art-actions button {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.editor-field span {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+.editor-field input {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.editor-write-note {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-accent-softer);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.editor-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.editor-actions .btn-primary {
+  padding: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-weight: 700;
+  font-size: var(--text-sm);
+}
+.editor-actions button:not(.btn-primary) {
+  padding: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
