@@ -65,6 +65,7 @@ export async function renderSearchScreen() {
       : `<div class="empty-state"><p class="title">No matches</p><p>Try a different search term.</p></div>`;
 
     unsubscribeList = wireSongList(resultsEl, matches, {
+      onOpen: (song) => navigate('music-hub', { songId: song.id, from: 'search' }),
       onPlay: (songs, songIndex) => {
         loadQueue(songs, songIndex);
         navigate('player');

@@ -1,27 +1,38 @@
 /**
  * song-list.js
  * A single reusable "song row" renderer + event wiring, shared by Search
- * and Library so both screens look and behave identically instead of
- * each re-implementing list rendering, favorite hearts, and art loading.
+ * and Library so both screens look and behave identically.
+ *
+ * Phase 1/2 additions:
+ *  - Multi-select mode (checkboxes + bulk toolbar driven by the caller)
+ *  - A dedicated small play button per row, since the row itself now
+ *    opens the Music Hub (Phase 2) instead of playing directly
+ *  - Optional "Most Played" play-count badge
  */
 
 import { getArtworkUrl } from '../services/artwork-service.js';
 import { subscribeFavorites, toggleFavorite } from '../services/favorites-service.js';
 
-export function renderSongListHtml(songs) {
+export function renderSongListHtml(songs, options = {}) {
+  const { selectMode = false, selectedIds = new Set(), showPlayCount = false } = options;
+
   if (songs.length === 0) {
     return `<div class="empty-state"><p class="title">Nothing here yet</p><p>Songs will show up here once available.</p></div>`;
   }
   return `
     <div class="song-list">
       ${songs.map((song) => `
-        <div class="song-row" data-id="${song.id}">
+        <div class="song-row ${selectMode ? 'select-mode' : ''} ${selectedIds.has(song.id) ? 'selected' : ''}" data-id="${song.id}">
+          ${selectMode ? `<button class="select-checkbox" data-id="${song.id}" aria-label="Select song">${selectedIds.has(song.id) ? '✓' : ''}</button>` : ''}
           <div class="art">${placeholderArtSvg()}</div>
           <div class="info">
             <div class="title">${escapeHtml(song.title)}</div>
-            <div class="meta">${escapeHtml(song.artist)}${song.album && song.album !== 'Unknown Album' ? ' · ' + escapeHtml(song.album) : ''}</div>
+            <div class="meta">${escapeHtml(song.artist)}${song.album && song.album !== 'Unknown Album' ? ' · ' + escapeHtml(song.album) : ''}${showPlayCount ? ` · ${song.playCount || 0} plays` : ''}</div>
           </div>
-          <button class="favorite-btn" data-id="${song.id}" aria-label="Toggle favorite">♥</button>
+          ${!selectMode ? `
+            <button class="row-play-btn" data-id="${song.id}" aria-label="Play now">▶</button>
+            <button class="favorite-btn" data-id="${song.id}" aria-label="Toggle favorite">♥</button>
+          ` : ''}
         </div>
       `).join('')}
     </div>
@@ -29,15 +40,41 @@ export function renderSongListHtml(songs) {
 }
 
 /**
- * Wires row taps (play that song, with the full displayed list as the
- * queue) and favorite-heart taps within `containerEl`. Returns a cleanup
- * function to unsubscribe from favorites updates.
+ * Wires row taps, the per-row play button, and favorite-heart taps within
+ * `containerEl`. Returns a cleanup function to unsubscribe from favorites
+ * updates.
+ *
+ * options:
+ *   onOpen(song)          - row tap when not in select mode (opens Music Hub)
+ *   onPlay(songs, index)  - row-play-button tap (plays immediately, full list as queue)
+ *   selectMode            - if true, row tap toggles selection instead
+ *   onToggleSelect(id)    - called when a row/checkbox is tapped in select mode
  */
-export function wireSongList(containerEl, songs, { onPlay } = {}) {
+export function wireSongList(containerEl, songs, { onOpen, onPlay, selectMode = false, onToggleSelect } = {}) {
   containerEl.querySelectorAll('.song-row').forEach((row) => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.favorite-btn')) return;
-      const songIndex = songs.findIndex((s) => s.id === row.dataset.id);
+      if (e.target.closest('.favorite-btn') || e.target.closest('.row-play-btn')) return;
+      const id = row.dataset.id;
+      if (selectMode) {
+        onToggleSelect?.(id);
+        return;
+      }
+      const song = songs.find((s) => s.id === id);
+      if (song) onOpen?.(song);
+    });
+  });
+
+  containerEl.querySelectorAll('.select-checkbox').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onToggleSelect?.(btn.dataset.id);
+    });
+  });
+
+  containerEl.querySelectorAll('.row-play-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const songIndex = songs.findIndex((s) => s.id === btn.dataset.id);
       if (songIndex === -1) return;
       onPlay?.(songs, songIndex);
     });
@@ -56,7 +93,7 @@ export function wireSongList(containerEl, songs, { onPlay } = {}) {
     });
   });
 
-  // Resolve real embedded artwork without blocking initial render.
+  // Resolve real embedded/override artwork without blocking initial render.
   songs.forEach((song) => {
     const artEl = containerEl.querySelector(`.song-row[data-id="${song.id}"] .art`);
     if (!artEl) return;
