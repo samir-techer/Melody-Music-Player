@@ -28,7 +28,7 @@ export function renderNicknameScreen() {
         class="text-input"
         id="nickname-input"
         type="text"
-        placeholder="Samir"
+        placeholder="Username"
         maxlength="24"
         autocomplete="off"
         autocapitalize="words"
