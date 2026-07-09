@@ -282,6 +282,151 @@
   font-size: var(--text-sm);
 }
 
+/* Manual Lyrics Search sheet (Phase 2) */
+.manual-lyrics-sheet { text-align: left; }
+.manual-lyrics-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
+}
+.manual-lyrics-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.manual-lyrics-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.manual-lyrics-field span {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.manual-lyrics-field span em {
+  font-weight: 400;
+  font-style: normal;
+  opacity: 0.7;
+}
+.manual-lyrics-field input {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
+}
+.manual-lyrics-form button[type="submit"] {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.manual-lyrics-form button[type="submit"]:disabled { opacity: 0.6; }
+
+.manual-lyrics-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+.manual-lyrics-empty {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  padding: var(--space-3) 0;
+  text-align: center;
+}
+.manual-lyrics-results-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+.manual-lyrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.manual-lyrics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+}
+.manual-lyrics-row:active { transform: scale(0.98); }
+.manual-lyrics-row.is-applying { opacity: 0.6; }
+.manual-lyrics-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.manual-lyrics-row-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.manual-lyrics-row-artist {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.manual-lyrics-row-album {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.manual-lyrics-row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.manual-lyrics-row-duration {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+.manual-lyrics-row-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+}
+.manual-lyrics-row-badge.is-synced {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: var(--color-accent);
+}
+.manual-lyrics-row-badge.is-plain {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
 /* Cover Art Finder grid */
 .coverart-grid {
   display: grid;
