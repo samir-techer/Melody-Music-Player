@@ -30,6 +30,7 @@ import { renderSettingsScreen } from './components/settings-screen.js';
 import { renderPremiumScreen } from './components/premium-screen.js';
 import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
+import { renderLyricsScreen } from './components/lyrics-screen.js';
 
 async function boot() {
   console.log('[Melody] App boot started');
@@ -53,6 +54,7 @@ async function boot() {
   registerRoute('premium', renderPremiumScreen);
   registerRoute('music-hub', renderMusicHubScreen);
   registerRoute('metadata-editor', renderMetadataEditorScreen);
+  registerRoute('lyrics', renderLyricsScreen);
   console.log('[Melody] Router mounted');
 
   // ---------- Restore last playback session (queue + position) ----------
