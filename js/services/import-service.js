@@ -10,15 +10,17 @@
  *   4. Check for a likely duplicate already in the library
  *   5. Save (or ask the caller to resolve the duplicate first)
  *
- * The full ID3-tag reading + MusicBrainz/AcoustID lookup + embedded cover
- * art extraction described in the brief lives in metadata-service.js,
- * which is the next build pass — this service already leaves the right
- * hook (a `metadata` field on the song record) for it to fill in later.
+ * ID3 tags are read locally during import (see getEmbeddedTags below).
+ * Whatever's still missing after that — genre, year, album, cover art,
+ * etc. — gets handed to metadata-service.js, which looks it up online
+ * (iTunes Search API) if the corresponding "Library & Metadata" Settings
+ * toggle is on, filling in only the fields that are actually empty.
  */
 
 import { cleanFilename } from '../utils/filename-cleaner.js';
 import { addSong, findPossibleDuplicate } from './library-service.js';
 import { getEmbeddedTags } from './artwork-service.js';
+import { autoEnrichSong } from './metadata-service.js';
 
 const SUPPORTED_EXTENSIONS = ['mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg'];
 const SUPPORTED_MIME_PREFIXES = ['audio/'];
@@ -28,6 +30,9 @@ const SUPPORTED_MIME_PREFIXES = ['audio/'];
  * @param {FileList|File[]} files
  * @param {Object} [options]
  * @param {(result: ImportProgress) => void} [options.onProgress] called after each file
+ *        (status: 'imported' | 'enriched' | 'skipped-duplicate' | 'failed';
+ *        'enriched' fires as a second, optional event per file once
+ *        auto-fetched metadata/cover art has been applied, if any was)
  * @param {(duplicate, incoming) => Promise<'replace'|'keep-both'|'skip'>} [options.onDuplicate]
  *        called when a likely duplicate is found; defaults to "keep-both"
  * @returns {Promise<{imported: number, skipped: number, failed: number, errors: string[]}>}
@@ -49,10 +54,10 @@ export async function importFiles(files, options = {}) {
       const duration = await readDuration(file).catch(() => 0);
       const { title: guessedTitle, artist: guessedArtist } = cleanFilename(file.name);
 
-      // Real ID3 tags (when present) beat the filename guess — a proper
-      // metadata-service with MusicBrainz/AcoustID lookups is still a
-      // future pass, but embedded tags are already sitting in the file
-      // and cost nothing extra to read during import.
+      // Real ID3 tags (when present) beat the filename guess — embedded
+      // tags are already sitting in the file and cost nothing extra to
+      // read during import. Anything still missing after this gets a shot
+      // at an online lookup below, via autoEnrichSong().
       const tags = await getEmbeddedTags({ fileName: file.name, mimeType: file.type, blob: file, title: guessedTitle })
         .catch(() => ({}));
 
@@ -106,6 +111,19 @@ export async function importFiles(files, options = {}) {
       await addSong(candidate);
       summary.imported += 1;
       onProgress?.({ file, status: 'imported', song: candidate });
+
+      // Best-effort: fill in whatever metadata/cover art is still missing
+      // (per the Settings toggles) now that the song is safely saved. A
+      // lookup failure here never fails the import — it just leaves the
+      // fields as they were.
+      try {
+        const { metadataUpdated, coverArtUpdated } = await autoEnrichSong(candidate);
+        if (metadataUpdated || coverArtUpdated) {
+          onProgress?.({ file, status: 'enriched', song: candidate, metadataUpdated, coverArtUpdated });
+        }
+      } catch (err) {
+        console.warn(`[Melody] Auto-enrichment failed for "${candidate.title}".`, err);
+      }
     } catch (err) {
       summary.failed += 1;
       summary.errors.push(`${file.name}: ${err.message}`);
