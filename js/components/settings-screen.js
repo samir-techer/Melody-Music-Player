@@ -9,6 +9,11 @@
 import { getThemeMode, setThemeMode } from '../services/theme-service.js';
 import { getSongCount, getAllSongs, removeSong } from '../services/library-service.js';
 import { getFavoriteIds } from '../services/favorites-service.js';
+import {
+  getAutoFetchCoverArt, setAutoFetchCoverArt,
+  getAutoFetchMetadata, setAutoFetchMetadata,
+  scanLibraryForMetadata,
+} from '../services/metadata-service.js';
 import { attachShell } from './shell.js';
 
 const THEME_OPTIONS = [
@@ -21,6 +26,8 @@ export async function renderSettingsScreen() {
   const currentMode = await getThemeMode();
   const songCount = await getSongCount().catch(() => 0);
   const favCount = (await getFavoriteIds().catch(() => [])).length;
+  const autoFetchCoverArt = await getAutoFetchCoverArt().catch(() => true);
+  const autoFetchMetadata = await getAutoFetchMetadata().catch(() => true);
 
   const el = document.createElement('div');
   el.className = 'screen settings-screen has-shell';
@@ -62,6 +69,38 @@ export async function renderSettingsScreen() {
     </section>
 
     <section class="section">
+      <div class="section-heading"><h2>Library &amp; Metadata</h2></div>
+      <div class="settings-list">
+        <div class="settings-row settings-row-toggle">
+          <div class="settings-row-label">
+            <span>Auto Fetch Cover Art</span>
+            <p class="settings-hint-inline">Look up missing album artwork online when songs are imported.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-auto-cover-art" ${autoFetchCoverArt ? 'checked' : ''} />
+            <span class="toggle-track"><span class="toggle-thumb-switch"></span></span>
+          </label>
+        </div>
+        <div class="settings-row settings-row-toggle">
+          <div class="settings-row-label">
+            <span>Auto Fetch Song Metadata</span>
+            <p class="settings-hint-inline">Fill in missing genre, year, album, and other tags automatically.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-auto-metadata" ${autoFetchMetadata ? 'checked' : ''} />
+            <span class="toggle-track"><span class="toggle-thumb-switch"></span></span>
+          </label>
+        </div>
+      </div>
+      <button class="btn-secondary" id="scan-library-btn" type="button">Scan Existing Library</button>
+      <p class="settings-hint">Applies these settings to songs you already imported. Existing tags and artwork are never overwritten.</p>
+      <div class="scan-progress" id="scan-progress" hidden>
+        <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-progress-fill"></div></div>
+        <p class="scan-progress-label" id="scan-progress-label">Scanning…</p>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="section-heading"><h2>Storage</h2></div>
       <button class="btn-secondary danger" id="clear-library-btn">Clear Library</button>
       <p class="settings-hint">Removes every imported song from this device. This can't be undone.</p>
@@ -85,6 +124,62 @@ export async function renderSettingsScreen() {
     if (!btn) return;
     await setThemeMode(btn.dataset.theme);
     el.querySelectorAll('.segment').forEach((s) => s.classList.toggle('active', s === btn));
+  });
+
+  el.querySelector('#toggle-auto-cover-art').addEventListener('change', async (e) => {
+    await setAutoFetchCoverArt(e.target.checked);
+  });
+
+  el.querySelector('#toggle-auto-metadata').addEventListener('change', async (e) => {
+    await setAutoFetchMetadata(e.target.checked);
+  });
+
+  el.querySelector('#scan-library-btn').addEventListener('click', async () => {
+    const btn = el.querySelector('#scan-library-btn');
+    const progressWrap = el.querySelector('#scan-progress');
+    const fill = el.querySelector('#scan-progress-fill');
+    const label = el.querySelector('#scan-progress-label');
+    const { showToast } = await import('../utils/toast.js');
+
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Scanning…';
+    progressWrap.hidden = false;
+    fill.style.width = '0%';
+    label.textContent = 'Preparing…';
+
+    try {
+      const songs = await getAllSongs();
+      if (songs.length === 0) {
+        label.textContent = 'No songs in your library yet.';
+      } else {
+        const summary = await scanLibraryForMetadata(songs, {
+          onProgress: (progress) => {
+            const pct = Math.round((progress.scanned / progress.total) * 100);
+            fill.style.width = `${pct}%`;
+            label.textContent = `Scanning ${progress.scanned} of ${progress.total} songs…`;
+          },
+        });
+
+        const parts = [];
+        if (summary.metadataUpdated > 0) {
+          parts.push(`${summary.metadataUpdated} song${summary.metadataUpdated === 1 ? '' : 's'} updated`);
+        }
+        if (summary.coverArtUpdated > 0) {
+          parts.push(`${summary.coverArtUpdated} cover${summary.coverArtUpdated === 1 ? '' : 's'} found`);
+        }
+        label.textContent = parts.length ? `Done — ${parts.join(', ')}.` : 'Done — nothing was missing.';
+        showToast(parts.length ? `Library scan complete: ${parts.join(', ')}.` : 'Library scan complete — nothing was missing.');
+      }
+    } catch (err) {
+      console.error('[Melody] Library scan failed.', err);
+      label.textContent = 'Scan failed — please try again.';
+      showToast('Library scan failed — please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      setTimeout(() => { progressWrap.hidden = true; }, 2000);
+    }
   });
 
   el.querySelector('#clear-library-btn').addEventListener('click', async () => {
