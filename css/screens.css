@@ -164,6 +164,8 @@
 
 .count { color: var(--color-text-secondary); font-weight: 400; }
 
+.hub-synced-lyrics-btn { margin-bottom: var(--space-3); }
+
 /* ---------- Toggle switch (Library & Metadata auto-fetch) ---------- */
 .settings-row-toggle {
   align-items: center;

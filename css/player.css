@@ -36,6 +36,13 @@
 .player-topbar-spacer { width: 40px; }
 #queue-toggle { font-size: 18px; }
 
+.player-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+#lyrics-toggle { font-size: 15px; font-weight: 700; font-family: var(--font-display); }
+
 /* ---------- Vinyl + album art ---------- */
 
 .vinyl-stage {
