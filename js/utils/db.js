@@ -13,10 +13,11 @@
  */
 
 export const DB_NAME = 'melody-db';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 export const KV_STORE = 'kv';
 export const SONGS_STORE = 'songs';
 export const PLAYLISTS_STORE = 'playlists';
+export const LYRICS_CACHE_STORE = 'lyricsCache';
 
 let dbPromise = null;
 
@@ -54,6 +55,16 @@ export function getDB() {
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
         const playlistsStore = db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
         playlistsStore.createIndex('createdAt', 'createdAt');
+      }
+
+      // Added in v4 (Advanced Lyrics System): a standalone artist+title
+      // keyed cache so successful LRCLIB matches can be reused across any
+      // song with the same artist/title (including future re-imports and
+      // duplicate files) and read back while offline, independent of the
+      // per-song "songs" store record.
+      if (!db.objectStoreNames.contains(LYRICS_CACHE_STORE)) {
+        const lyricsCacheStore = db.createObjectStore(LYRICS_CACHE_STORE, { keyPath: 'key' });
+        lyricsCacheStore.createIndex('cachedAt', 'cachedAt');
       }
     };
 
