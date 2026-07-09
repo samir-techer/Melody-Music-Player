@@ -19,7 +19,10 @@ export async function renderPlayerScreen() {
     <div class="player-topbar">
       <button id="player-back" aria-label="Minimize">︿</button>
       <span class="player-topbar-label">Now Playing</span>
-      <button id="queue-toggle" aria-label="Queue">☰</button>
+      <div class="player-topbar-actions">
+        <button id="lyrics-toggle" aria-label="Lyrics">Aa</button>
+        <button id="queue-toggle" aria-label="Queue">☰</button>
+      </div>
     </div>
 
     <div class="vinyl-stage">
@@ -185,6 +188,7 @@ export async function renderPlayerScreen() {
   };
 
   el.querySelector('#player-back').addEventListener('click', () => navigate('home'));
+  el.querySelector('#lyrics-toggle').addEventListener('click', () => navigate('lyrics'));
   playPauseBtn.addEventListener('click', () => togglePlay());
   el.querySelector('#btn-next').addEventListener('click', () => next());
   el.querySelector('#btn-previous').addEventListener('click', () => previous());

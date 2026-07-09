@@ -153,12 +153,21 @@ async function loadLyrics(el, song) {
     }
     if (result.syncedLyrics) {
       const lines = parseSyncedLyrics(result.syncedLyrics);
-      contentEl.innerHTML = lines.length
-        ? `<div class="synced-lyrics">${lines.map((l) => `<p data-time="${l.time}">${escapeHtml(l.text)}</p>`).join('')}</div>`
-        : `<p class="hub-lyrics-plain">${escapeHtml(result.plainLyrics || '').split('\n').map(escapeHtml).join('<br/>')}</p>`;
-    } else {
-      contentEl.innerHTML = `<p class="hub-lyrics-plain">${(result.plainLyrics || '').split('\n').map(escapeHtml).join('<br/>')}</p>`;
+      if (lines.length > 0) {
+        contentEl.innerHTML = `
+          <button class="btn-secondary hub-synced-lyrics-btn" id="hub-open-synced-lyrics" type="button">
+            🎵 Open Synced Lyrics
+          </button>
+          <div class="synced-lyrics">${lines.map((l) => `<p data-time="${l.time}">${escapeHtml(l.text)}</p>`).join('')}</div>
+        `;
+        contentEl.querySelector('#hub-open-synced-lyrics').addEventListener('click', () => {
+          loadQueue([song], 0);
+          navigate('lyrics');
+        });
+        return;
+      }
     }
+    contentEl.innerHTML = `<p class="hub-lyrics-plain">${(result.plainLyrics || '').split('\n').map(escapeHtml).join('<br/>')}</p>`;
   } catch (err) {
     console.error('[Melody] Music Hub: lyrics lookup failed.', err);
     contentEl.innerHTML = `<p class="hub-lyrics-empty">Couldn't load lyrics right now.</p>`;
