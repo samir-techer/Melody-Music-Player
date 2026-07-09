@@ -88,3 +88,28 @@ export function parseSyncedLyrics(lrcText) {
     .filter(Boolean)
     .sort((a, b) => a.time - b.time);
 }
+
+/**
+ * Binary search for the index of the currently-active line given a
+ * playback time — the line whose timestamp is the latest one at or
+ * before `time`. Returns -1 if playback hasn't reached the first line
+ * yet. `lines` must already be sorted ascending by `.time` (as returned
+ * by parseSyncedLyrics). Cheap enough to call on every playback tick —
+ * a typical synced-lyrics file is well under a few hundred lines.
+ */
+export function findActiveLineIndex(lines, time) {
+  if (!lines || lines.length === 0) return -1;
+  if (time < lines[0].time) return -1;
+
+  let lo = 0, hi = lines.length - 1, result = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].time <= time) {
+      result = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return result;
+}

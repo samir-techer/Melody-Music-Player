@@ -26,6 +26,7 @@ const DEFAULT_ART_SVG = `
 export const DEFAULT_ART_URL = `data:image/svg+xml;utf8,${encodeURIComponent(DEFAULT_ART_SVG)}`;
 
 const artUrlCache = new Map(); // songId -> objectURL, so we don't re-parse repeatedly
+const dominantColorCache = new Map(); // songId -> '#rrggbb' | null, for the Synced Lyrics glow
 
 /**
  * Get a usable art URL for a song. Tries embedded artwork first (cached
@@ -65,6 +66,78 @@ export async function getEmbeddedArtworkBlob(song) {
   }
 }
 
+/**
+ * Get a rough "dominant color" for a song's artwork, as a '#rrggbb'
+ * string, for premium touches like the Synced Lyrics screen's glow/
+ * highlight color. Resolves to null when there's no real artwork (the
+ * default placeholder), the image fails to load, or the canvas read
+ * fails for any reason (e.g. a browser quirk with an unusual image
+ * codec) — callers should always have a sensible fallback color ready.
+ * Cached per song id, same lifetime as the artwork URL cache.
+ */
+export async function getDominantColor(song) {
+  if (!song) return null;
+  if (dominantColorCache.has(song.id)) return dominantColorCache.get(song.id);
+
+  let color = null;
+  try {
+    const url = await getArtworkUrl(song);
+    if (url && !url.startsWith('data:image/svg+xml')) {
+      color = await extractDominantColor(url);
+    }
+  } catch (err) {
+    console.warn(`[Melody] Dominant color extraction failed for "${song.title}".`, err);
+  }
+
+  dominantColorCache.set(song.id, color);
+  return color;
+}
+
+/**
+ * Downscale the artwork onto a tiny canvas and average the pixels,
+ * skipping near-white/near-black extremes (album border mattes, deep
+ * shadow) so the result reflects the art's actual hue rather than
+ * whatever's most common at the edges.
+ */
+function extractDominantColor(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const size = 24;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, size, size);
+        const { data } = ctx.getImageData(0, 0, size, size);
+
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 200) continue; // skip transparent pixels
+          const rr = data[i], gg = data[i + 1], bb = data[i + 2];
+          const max = Math.max(rr, gg, bb);
+          const min = Math.min(rr, gg, bb);
+          if (max > 245 && min > 235) continue; // near-white
+          if (max < 18) continue; // near-black
+          r += rr; g += gg; b += bb; count += 1;
+        }
+
+        if (count === 0) { resolve(null); return; }
+        resolve(rgbToHex(Math.round(r / count), Math.round(g / count), Math.round(b / count)));
+      } catch (err) {
+        resolve(null); // e.g. a tainted canvas — fail closed, never throw
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`;
+}
+
 function invalidateArtworkCacheInternal(songId) {
   const existing = artUrlCache.get(songId);
   if (existing && existing.startsWith('blob:')) {
@@ -75,6 +148,7 @@ function invalidateArtworkCacheInternal(songId) {
 
 export function invalidateArtworkCache(songId) {
   invalidateArtworkCacheInternal(songId);
+  dominantColorCache.delete(songId);
 }
 
 function isMp3(song) {
