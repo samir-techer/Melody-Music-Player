@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v9'; // bumped: fixed confirm-password field visibility bug + surfaced real auth error codes
+const CACHE_NAME = 'melody-shell-v10'; // bumped: fixed nickname save getting stuck when the profile doc wasn't created yet
 
 const APP_SHELL = [
   './',
