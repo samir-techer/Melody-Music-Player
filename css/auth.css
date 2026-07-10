@@ -111,6 +111,16 @@
   gap: var(--space-1);
 }
 
+/* .auth-field sets display:flex, which (like the forgot-password overlay
+   above) overrides the browser's default hidden -> display:none behavior.
+   This field is toggled with the `hidden` attribute between Login/Sign Up
+   mode, so it needs the same explicit override — matching the [hidden]
+   convention already used elsewhere in the app (see .mini-player[hidden]
+   in home.css, .queue-sheet[hidden] in player.css). */
+.auth-field-confirm[hidden] {
+  display: none;
+}
+
 .auth-label {
   font-size: var(--text-xs);
   color: #9A948A;
