@@ -5,21 +5,26 @@
  * Every stage is wrapped so a failure in one (a broken import, a blocked
  * IndexedDB upgrade, a settings read that throws, etc.) is logged and
  * skipped rather than left to silently hang the module graph or freeze
- * the page. The Home screen is the guaranteed final fallback: if we
- * cannot even determine where to route, we still render Home rather than
- * show a blank screen.
+ * the page. Login is the guaranteed final fallback: if we cannot even
+ * determine where to route, we still send the person to the login screen
+ * rather than show a blank screen or, worse, an unauthenticated Home.
  *
- * Flow:
- *   1. No nickname stored yet        -> nickname-screen (first launch)
- *   2. Nickname stored, greeting
- *      not yet seen                  -> greeting-screen  (shown once)
- *   3. Nickname + greeting both seen -> home-screen       (every launch after)
+ * Flow (login is required — Melody has no guest mode):
+ *   1. No signed-in user                        -> login-screen
+ *   2. Signed in, email/password + not verified  -> verify-email-screen
+ *   3. Signed in + verified, no nickname on
+ *      the Firestore profile yet                -> nickname-screen (first launch)
+ *   4. Nickname set, greeting not yet seen       -> greeting-screen  (shown once)
+ *   5. Nickname + greeting both done             -> home-screen       (every launch after)
  */
 
-import { getItem } from './utils/storage.js';
-import { initRouter, registerRoute, navigate } from './utils/router.js';
+import { getItem, setItem } from './utils/storage.js';
+import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/router.js';
 import { initTheme } from './services/theme-service.js';
 import { restoreState } from './services/player-service.js';
+import { onAuthChange, getUserProfile } from './services/auth-service.js';
+import { renderLoginScreen } from './components/login-screen.js';
+import { renderVerifyEmailScreen } from './components/verify-email-screen.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
 import { renderGreetingScreen } from './components/greeting-screen.js';
 import { renderHomeScreen } from './components/home-screen.js';
@@ -31,6 +36,8 @@ import { renderPremiumScreen } from './components/premium-screen.js';
 import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
+
+let currentAuthUser = null;
 
 async function boot() {
   console.log('[Melody] App boot started');
@@ -44,17 +51,27 @@ async function boot() {
   }
 
   initRouter(root);
-  registerRoute('nickname', renderNicknameScreen);
-  registerRoute('greeting', renderGreetingScreen);
-  registerRoute('home', renderHomeScreen);
-  registerRoute('player', renderPlayerScreen);
-  registerRoute('search', renderSearchScreen);
-  registerRoute('library', renderLibraryScreen);
-  registerRoute('settings', renderSettingsScreen);
-  registerRoute('premium', renderPremiumScreen);
-  registerRoute('music-hub', renderMusicHubScreen);
-  registerRoute('metadata-editor', renderMetadataEditorScreen);
-  registerRoute('lyrics', renderLyricsScreen);
+
+  // Public — reachable while signed out.
+  registerRoute('login', renderLoginScreen);
+  registerRoute('verify-email', renderVerifyEmailScreen);
+
+  // Everything else requires an authenticated session. Cloud Sync, Admin,
+  // and Artist Portal screens plug into this same `requiresAuth: true`
+  // pattern once they're built.
+  registerRoute('nickname', renderNicknameScreen, { requiresAuth: true });
+  registerRoute('greeting', renderGreetingScreen, { requiresAuth: true });
+  registerRoute('home', renderHomeScreen, { requiresAuth: true });
+  registerRoute('player', renderPlayerScreen, { requiresAuth: true });
+  registerRoute('search', renderSearchScreen, { requiresAuth: true });
+  registerRoute('library', renderLibraryScreen, { requiresAuth: true });
+  registerRoute('settings', renderSettingsScreen, { requiresAuth: true });
+  registerRoute('premium', renderPremiumScreen, { requiresAuth: true });
+  registerRoute('music-hub', renderMusicHubScreen, { requiresAuth: true });
+  registerRoute('metadata-editor', renderMetadataEditorScreen, { requiresAuth: true });
+  registerRoute('lyrics', renderLyricsScreen, { requiresAuth: true });
+
+  setAuthGuard(() => !!currentAuthUser);
   console.log('[Melody] Router mounted');
 
   // ---------- Restore last playback session (queue + position) ----------
@@ -72,28 +89,42 @@ async function boot() {
     console.error('[Melody] Settings failed to load — continuing with default theme.', err);
   }
 
-  // ---------- Database + route decision ----------
-  let startRoute = 'home'; // safe fallback if anything below throws
+  // ---------- Firebase auth + route decision ----------
+  // Firebase's local persistence means this resolves with the existing
+  // session on relaunch (no flash of the login screen) and with `null`
+  // only for genuinely signed-out visitors.
+  let startRoute = 'login'; // safe fallback if anything below throws
   try {
-    startRoute = await determineStartRoute();
-    console.log(`[Melody] Database initialized — start route resolved to "${startRoute}"`);
+    currentAuthUser = await waitForFirstAuthState();
+    startRoute = await resolveRouteForUser(currentAuthUser);
+    console.log(`[Melody] Auth resolved — start route resolved to "${startRoute}"`);
   } catch (err) {
-    console.error('[Melody] Database/init failed — falling back to Home so the app still opens.', err);
-    startRoute = 'home';
+    console.error('[Melody] Auth/init failed — falling back to Login.', err);
+    startRoute = 'login';
   }
+
+  // Keep routing in sync with auth changes that happen *after* boot too
+  // (e.g. the session is signed out in another tab, or a token expires).
+  onAuthChange((user) => {
+    const wasSignedIn = !!currentAuthUser;
+    currentAuthUser = user;
+    if (wasSignedIn && !user) {
+      navigate('login').catch((err) => console.error('[Melody] Failed to route to login after sign-out.', err));
+    }
+  });
 
   // ---------- Render ----------
   try {
     await navigate(startRoute);
     console.log(`[Melody] ${capitalize(startRoute)} rendered`);
   } catch (err) {
-    console.error(`[Melody] Failed to render "${startRoute}" — attempting Home as last resort.`, err);
-    if (startRoute !== 'home') {
+    console.error(`[Melody] Failed to render "${startRoute}" — attempting Login as last resort.`, err);
+    if (startRoute !== 'login') {
       try {
-        await navigate('home');
-        console.log('[Melody] Home rendered (fallback path)');
+        await navigate('login');
+        console.log('[Melody] Login rendered (fallback path)');
       } catch (fallbackErr) {
-        console.error('[Melody] FATAL: Home screen itself failed to render.', fallbackErr);
+        console.error('[Melody] FATAL: Login screen itself failed to render.', fallbackErr);
         renderCrashFallback(root, fallbackErr);
       }
     } else {
@@ -104,15 +135,51 @@ async function boot() {
   registerServiceWorker();
 }
 
-async function determineStartRoute() {
-  const nickname = await getItem('nickname');
-  console.log('[Melody] Library check skipped at boot (Home loads its own library data lazily)');
-  if (!nickname) return 'nickname';
+function waitForFirstAuthState() {
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthChange((user) => {
+      unsubscribe();
+      resolve(user);
+    });
+  });
+}
+
+/**
+ * The single source of truth for "what screen should this signed-in (or
+ * signed-out) user see". Used both at boot and by login-screen /
+ * verify-email-screen right after a successful auth action, via
+ * `resolvePostAuthRoute()` below, so the decision tree only lives here.
+ */
+async function resolveRouteForUser(user) {
+  if (!user) return 'login';
+
+  // Google accounts are pre-verified by Google; only email/password
+  // accounts go through Melody's own verification step.
+  const isPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
+  if (isPasswordProvider && !user.emailVerified) return 'verify-email';
+
+  let profile = null;
+  try {
+    profile = await getUserProfile(user.uid);
+  } catch (err) {
+    console.error('[Melody] Could not read user profile — assuming nickname still needed.', err);
+  }
+
+  if (!profile?.nickname) return 'nickname';
+
+  // Keep the local mirror in sync so greeting-screen and any offline
+  // reads of "nickname" stay correct without a Firestore round-trip.
+  setItem('nickname', profile.nickname).catch(() => {});
 
   const hasSeenGreeting = await getItem('hasSeenGreeting');
   if (!hasSeenGreeting) return 'greeting';
 
   return 'home';
+}
+
+/** Exported for login-screen.js / verify-email-screen.js post-auth redirects. */
+export async function resolvePostAuthRoute() {
+  return resolveRouteForUser(currentAuthUser);
 }
 
 /**
