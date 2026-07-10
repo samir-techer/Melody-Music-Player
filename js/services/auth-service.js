@@ -145,7 +145,33 @@ export async function getUserProfile(uid) {
 
 /** Sets the nickname in both Firestore and the Firebase Auth profile. */
 export async function setUserNickname(uid, nickname) {
-  await updateDoc(doc(db, USERS_COLLECTION, uid), { nickname });
+  const ref = doc(db, USERS_COLLECTION, uid);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    // Profile document never got created (e.g. a dropped connection
+    // during sign-up) — recreate it in full now instead of just writing
+    // the nickname on top of nothing, so premiumPlan/role/etc. aren't
+    // silently missing afterward.
+    const user = auth.currentUser;
+    await setDoc(ref, {
+      uid,
+      nickname,
+      email: user?.email || null,
+      profilePhoto: user?.photoURL || null,
+      provider: user?.providerData.some((p) => p.providerId === 'google.com') ? 'Google' : 'Email',
+      accountCreated: serverTimestamp(),
+      premiumPlan: 'Free',
+      premiumExpiry: null,
+      role: 'User',
+      totalSongs: 0,
+      totalListeningTime: 0,
+      lastLogin: serverTimestamp(),
+    });
+  } else {
+    await setDoc(ref, { nickname }, { merge: true });
+  }
+
   if (auth.currentUser && auth.currentUser.uid === uid) {
     await updateProfile(auth.currentUser, { displayName: nickname }).catch(() => {
       // Non-fatal — Firestore is the source of truth Melody actually reads from.
