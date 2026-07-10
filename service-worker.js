@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v8'; // bumped: fixed forgot-password overlay showing on load
+const CACHE_NAME = 'melody-shell-v9'; // bumped: fixed confirm-password field visibility bug + surfaced real auth error codes
 
 const APP_SHELL = [
   './',
