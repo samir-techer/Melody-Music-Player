@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v7'; // bumped: added Firebase Authentication (login/signup/verify-email)
+const CACHE_NAME = 'melody-shell-v8'; // bumped: fixed forgot-password overlay showing on load
 
 const APP_SHELL = [
   './',
