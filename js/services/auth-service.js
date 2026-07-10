@@ -179,15 +179,24 @@ const FRIENDLY_ERRORS = {
   'auth/invalid-login-credentials': 'Email or password is incorrect.',
   'auth/email-already-in-use': 'An account already exists with that email — try logging in instead.',
   'auth/weak-password': 'Please choose a password with at least 6 characters.',
+  'auth/password-does-not-meet-requirements': 'That password doesn\u2019t meet this project\u2019s password rules (check length/character requirements in Firebase).',
   'auth/too-many-requests': 'Too many attempts. Please wait a moment and try again.',
   'auth/network-request-failed': 'Network error — check your connection and try again.',
   'auth/popup-closed-by-user': 'Google sign-in was closed before finishing.',
   'auth/cancelled-popup-request': 'Google sign-in was cancelled.',
   'auth/popup-blocked': 'Your browser blocked the Google sign-in popup. Please allow popups and try again.',
   'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.',
+  'auth/unauthorized-domain': 'This site isn\u2019t yet authorized for sign-in — add its domain in Firebase Authentication settings.',
+  'auth/requests-from-referer-are-blocked': 'This site\u2019s API key is restricted — check the key\u2019s allowed domains in Google Cloud Console.',
+  'permission-denied': 'Your account was created, but saving your profile was blocked by Firestore\u2019s security rules — check they\u2019re published correctly.',
+  'unavailable': 'Couldn\u2019t reach the server. Check your connection and try again.',
 };
 
 export function friendlyAuthError(err) {
   const code = err?.code || '';
-  return FRIENDLY_ERRORS[code] || 'Something went wrong. Please try again.';
+  const mapped = FRIENDLY_ERRORS[code];
+  if (mapped) return mapped;
+  // Unmapped code — still show something actionable instead of a dead end,
+  // and surface the raw code so it can be looked up/reported.
+  return code ? `Something went wrong (${code}). Please try again.` : 'Something went wrong. Please try again.';
 }
