@@ -7,19 +7,38 @@
  */
 
 const routes = new Map();
+const guardedRoutes = new Set();
 let rootEl = null;
 let currentName = null;
+let authGuardFn = null; // () => boolean — returns true if the current session is authenticated
 
-export function registerRoute(name, renderFn) {
+export function registerRoute(name, renderFn, { requiresAuth = false } = {}) {
   routes.set(name, renderFn);
+  if (requiresAuth) guardedRoutes.add(name);
 }
 
 export function initRouter(root) {
   rootEl = root;
 }
 
+/**
+ * Wires up the auth check used by guarded routes (see registerRoute's
+ * `requiresAuth` option). Set once from app.js after Firebase auth is
+ * ready. Kept generic/decoupled here so router.js has no direct
+ * dependency on the auth service.
+ */
+export function setAuthGuard(fn) {
+  authGuardFn = fn;
+}
+
 export async function navigate(name, params = {}) {
   if (!rootEl) throw new Error('Router not initialized — call initRouter(root) first.');
+
+  if (guardedRoutes.has(name) && authGuardFn && !authGuardFn()) {
+    console.warn(`[Melody] Blocked navigation to guarded route "${name}" — user is not authenticated.`);
+    name = 'login';
+  }
+
   const renderFn = routes.get(name);
   if (!renderFn) throw new Error(`No route registered for "${name}"`);
 
