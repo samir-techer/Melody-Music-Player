@@ -1,0 +1,276 @@
+/* ==========================================================================
+   MELODY — AUTHENTICATION (Login / Sign Up / Forgot Password / Verify Email)
+   Deliberately its own fixed "premium black" palette rather than the
+   light/dark tokens in tokens.css — the gate to the app should look and
+   feel identical no matter which theme the person eventually picks inside.
+   ========================================================================== */
+
+.auth-screen {
+  justify-content: center;
+  align-items: center;
+  background: #0A0A0A;
+  background-image: radial-gradient(circle at 50% 0%, #1a1712 0%, #0A0A0A 55%);
+  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+  animation: fade-in var(--duration-slow) var(--ease-out);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+}
+
+.auth-mark {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-2);
+}
+
+.auth-eyebrow {
+  font-size: var(--text-xs);
+  color: #D4AF6A;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: 600;
+}
+
+.auth-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: #F5F1EC;
+  line-height: var(--leading-tight);
+}
+
+.auth-subtitle {
+  font-size: var(--text-sm);
+  color: #9A948A;
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+.auth-subtitle strong {
+  color: #F5F1EC;
+  font-weight: 600;
+}
+
+/* ---------- Google button ---------- */
+.auth-google-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: #F5F1EC;
+  color: #0A0A0A;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  border: none;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast);
+}
+.auth-google-btn:hover { transform: translateY(-1px); }
+.auth-google-btn:active { transform: translateY(0); }
+.auth-google-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
+.auth-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: #5c564d;
+  font-size: var(--text-xs);
+  margin: var(--space-1) 0;
+}
+.auth-divider::before, .auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(245, 241, 236, 0.12);
+}
+
+/* ---------- Form ---------- */
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.auth-label {
+  font-size: var(--text-xs);
+  color: #9A948A;
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.auth-input {
+  width: 100%;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(245, 241, 236, 0.14);
+  background: #161513;
+  color: #F5F1EC;
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+.auth-input::placeholder { color: #5c564d; }
+.auth-input:focus {
+  outline: none;
+  border-color: #D4AF6A;
+}
+
+.auth-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.auth-password-wrap .auth-input { padding-right: 44px; }
+
+.auth-eye-btn {
+  position: absolute;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9A948A;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.auth-eye-btn:hover { color: #F5F1EC; }
+.auth-eye-btn.is-visible { color: #D4AF6A; }
+
+.auth-forgot-link {
+  align-self: flex-end;
+  font-size: var(--text-xs);
+  color: #D4AF6A;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  margin-top: -4px;
+}
+.auth-forgot-link:hover { text-decoration: underline; }
+
+.auth-error {
+  font-size: var(--text-sm);
+  color: #E0705C;
+  background: rgba(224, 112, 92, 0.1);
+  border: 1px solid rgba(224, 112, 92, 0.25);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+}
+
+.auth-success {
+  font-size: var(--text-sm);
+  color: #7FBF8A;
+  background: rgba(127, 191, 138, 0.1);
+  border: 1px solid rgba(127, 191, 138, 0.25);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+}
+
+.auth-submit-btn {
+  position: relative;
+  width: 100%;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: #D4AF6A;
+  color: #0A0A0A;
+  font-weight: 700;
+  font-size: var(--text-base);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast);
+}
+.auth-submit-btn:hover { transform: translateY(-1px); }
+.auth-submit-btn:active { transform: translateY(0); }
+.auth-submit-btn:disabled { opacity: 0.7; cursor: default; transform: none; }
+
+.auth-spinner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(10, 10, 10, 0.25);
+  border-top-color: #0A0A0A;
+  border-radius: 50%;
+  animation: auth-spin 700ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-switch {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: #9A948A;
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.auth-switch-btn {
+  color: #D4AF6A;
+  font-weight: 600;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+}
+.auth-switch-btn:hover { text-decoration: underline; }
+
+.auth-forgot-cancel {
+  margin-top: var(--space-2);
+  color: #9A948A;
+}
+
+/* ---------- Forgot-password overlay ---------- */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.92);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: 40;
+  animation: fade-in var(--duration-base) var(--ease-out);
+}
+
+.auth-forgot-card {
+  background: #141310;
+  border: 1px solid rgba(245, 241, 236, 0.08);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5) var(--space-4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-spinner { animation-duration: 1ms; }
+}
