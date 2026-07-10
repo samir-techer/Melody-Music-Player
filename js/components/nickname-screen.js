@@ -1,13 +1,20 @@
 /**
  * nickname-screen.js
- * First thing a brand-new user ever sees. No accounts, no login —
- * just a name we use to greet them, stored only on this device.
+ * Shown once, right after a brand-new account finishes auth (and email
+ * verification, for email/password accounts). Saves the nickname to the
+ * user's Firestore profile — Google sign-ins arrive with a display name
+ * already, but Melody still asks so the greeting always uses a name the
+ * person actually wants to be called.
  */
 
 import { setItem } from '../utils/storage.js';
 import { navigate } from '../utils/router.js';
+import { getCurrentUser, setUserNickname } from '../services/auth-service.js';
 
 export function renderNicknameScreen() {
+  const user = getCurrentUser();
+  const suggested = user?.displayName || '';
+
   const el = document.createElement('div');
   el.className = 'screen onboarding-screen';
   el.innerHTML = `
@@ -34,7 +41,8 @@ export function renderNicknameScreen() {
         autocapitalize="words"
         required
       />
-      <p class="hint">This nickname stays only on this device.</p>
+      <p class="hint">You can change this later in Settings.</p>
+      <p class="auth-error" id="nickname-error" role="alert" hidden></p>
       <button type="submit" class="btn-primary" id="nickname-submit" disabled>
         Continue →
       </button>
@@ -44,6 +52,10 @@ export function renderNicknameScreen() {
   const input = el.querySelector('#nickname-input');
   const submitBtn = el.querySelector('#nickname-submit');
   const form = el.querySelector('#nickname-form');
+  const errorEl = el.querySelector('#nickname-error');
+
+  if (suggested) input.value = suggested;
+  submitBtn.disabled = input.value.trim().length === 0;
 
   input.addEventListener('input', () => {
     submitBtn.disabled = input.value.trim().length === 0;
@@ -55,8 +67,20 @@ export function renderNicknameScreen() {
     if (!nickname) return;
 
     submitBtn.disabled = true;
-    await setItem('nickname', nickname);
-    await navigate('greeting');
+    errorEl.hidden = true;
+    try {
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        await setUserNickname(currentUser.uid, nickname);
+      }
+      await setItem('nickname', nickname); // local mirror for fast/offline reads
+      await navigate('greeting');
+    } catch (err) {
+      console.error('[Melody] Failed to save nickname.', err);
+      errorEl.textContent = 'Couldn\u2019t save your nickname — check your connection and try again.';
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+    }
   });
 
   // Autofocus feels premium, but don't fight mobile keyboard timing

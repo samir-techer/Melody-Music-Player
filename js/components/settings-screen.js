@@ -15,6 +15,9 @@ import {
   scanLibraryForMetadata,
 } from '../services/metadata-service.js';
 import { attachShell } from './shell.js';
+import {
+  getCurrentUser, getUserProfile, signOutUser, resendVerificationEmail,
+} from '../services/auth-service.js';
 
 const THEME_OPTIONS = [
   { key: 'system', label: 'System' },
@@ -29,12 +32,48 @@ export async function renderSettingsScreen() {
   const autoFetchCoverArt = await getAutoFetchCoverArt().catch(() => true);
   const autoFetchMetadata = await getAutoFetchMetadata().catch(() => true);
 
+  const authUser = getCurrentUser();
+  const profile = authUser ? await getUserProfile(authUser.uid).catch(() => null) : null;
+  const isPasswordAccount = authUser?.providerData.some((p) => p.providerId === 'password');
+  const isVerified = !isPasswordAccount || authUser?.emailVerified;
+
   const el = document.createElement('div');
   el.className = 'screen settings-screen has-shell';
   el.innerHTML = `
     <header class="screen-header">
       <h1>Settings</h1>
     </header>
+
+    <section class="section">
+      <div class="section-heading"><h2>Account</h2></div>
+      <div class="settings-list">
+        <div class="settings-row">
+          <span>Email</span>
+          <span class="settings-value">${escapeHtml(authUser?.email || '—')}</span>
+        </div>
+        <div class="settings-row">
+          <span>Plan</span>
+          <span class="settings-value">${escapeHtml(profile?.premiumPlan || 'Free')}</span>
+        </div>
+        <div class="settings-row">
+          <span>Role</span>
+          <span class="settings-value">${escapeHtml(profile?.role || 'User')}</span>
+        </div>
+        <div class="settings-row">
+          <span>Signed in with</span>
+          <span class="settings-value">${escapeHtml(profile?.provider || 'Email')}</span>
+        </div>
+        ${!isVerified ? `
+        <div class="settings-row-toggle" style="padding-top: var(--space-2);">
+          <div class="settings-row-label">
+            <span>⚠️ Email not verified</span>
+            <p class="settings-hint-inline">Verify your email to keep full account access.</p>
+          </div>
+          <button class="btn-secondary" id="resend-verify-btn" type="button" style="width:auto;">Resend</button>
+        </div>` : ''}
+      </div>
+      <button class="btn-secondary danger" id="logout-btn" type="button">Log Out</button>
+    </section>
 
     <section class="section">
       <button class="settings-list premium-promo" id="premium-promo-btn" type="button">
@@ -119,6 +158,34 @@ export async function renderSettingsScreen() {
     navigate('premium');
   });
 
+  el.querySelector('#logout-btn').addEventListener('click', async () => {
+    if (!window.confirm('Log out of Melody?')) return;
+    const { navigate } = await import('../utils/router.js');
+    const { showToast } = await import('../utils/toast.js');
+    try {
+      await signOutUser();
+      await navigate('login');
+    } catch (err) {
+      console.error('[Melody] Logout failed.', err);
+      showToast('Couldn\u2019t log out — please try again.');
+    }
+  });
+
+  el.querySelector('#resend-verify-btn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const { showToast } = await import('../utils/toast.js');
+    btn.disabled = true;
+    try {
+      await resendVerificationEmail();
+      showToast('Verification email resent.');
+    } catch (err) {
+      console.error('[Melody] Resend verification failed.', err);
+      showToast('Couldn\u2019t resend right now — try again shortly.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   el.querySelector('#theme-picker').addEventListener('click', async (e) => {
     const btn = e.target.closest('.segment');
     if (!btn) return;
@@ -200,4 +267,10 @@ export async function renderSettingsScreen() {
   el._onLeave = unsubscribeShell;
 
   return el;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
 }
