@@ -6,7 +6,7 @@
  * this worker only owns the static shell for now.
  */
 
-const CACHE_NAME = 'melody-shell-v6'; // bumped: added Melody Premium screen (preview, no payments)
+const CACHE_NAME = 'melody-shell-v7'; // bumped: added Firebase Authentication (login/signup/verify-email)
 
 const APP_SHELL = [
   './',
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './css/screens.css',
   './css/toast.css',
   './css/premium.css',
+  './css/auth.css',
   './js/app.js',
   './js/utils/db.js',
   './js/utils/storage.js',
@@ -34,6 +35,10 @@ const APP_SHELL = [
   './js/services/artwork-service.js',
   './js/services/favorites-service.js',
   './js/services/history-service.js',
+  './js/services/firebase-config.js',
+  './js/services/auth-service.js',
+  './js/components/login-screen.js',
+  './js/components/verify-email-screen.js',
   './js/components/nickname-screen.js',
   './js/components/greeting-screen.js',
   './js/components/home-screen.js',
