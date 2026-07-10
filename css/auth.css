@@ -263,6 +263,16 @@
   animation: fade-in var(--duration-base) var(--ease-out);
 }
 
+/* The `hidden` attribute normally sets display:none, but it has the same
+   CSS specificity as the .auth-overlay class rule above — whichever rule
+   is declared later in the stylesheet wins, which was hiding this rule's
+   own `display:flex` from taking effect correctly. This selector is more
+   specific, so it reliably wins and keeps the overlay hidden until JS
+   removes the attribute (on "Forgot password?" click). */
+.auth-overlay[hidden] {
+  display: none;
+}
+
 .auth-forgot-card {
   background: #141310;
   border: 1px solid rgba(245, 241, 236, 0.08);
