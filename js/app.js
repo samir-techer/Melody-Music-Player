@@ -18,11 +18,11 @@
  *   5. Nickname + greeting both done             -> home-screen       (every launch after)
  */
 
-import { getItem, setItem } from './utils/storage.js';
+import { getUserItem, setUserItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/router.js';
 import { initTheme } from './services/theme-service.js';
 import { restoreState } from './services/player-service.js';
-import { onAuthChange, getUserProfile } from './services/auth-service.js';
+import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser } from './services/auth-service.js';
 import { renderLoginScreen } from './components/login-screen.js';
 import { renderVerifyEmailScreen } from './components/verify-email-screen.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
@@ -95,7 +95,7 @@ async function boot() {
   // only for genuinely signed-out visitors.
   let startRoute = 'login'; // safe fallback if anything below throws
   try {
-    currentAuthUser = await waitForFirstAuthState();
+    currentAuthUser = await waitForInitialUser();
     startRoute = await resolveRouteForUser(currentAuthUser);
     console.log(`[Melody] Auth resolved — start route resolved to "${startRoute}"`);
   } catch (err) {
@@ -135,15 +135,6 @@ async function boot() {
   registerServiceWorker();
 }
 
-function waitForFirstAuthState() {
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthChange((user) => {
-      unsubscribe();
-      resolve(user);
-    });
-  });
-}
-
 /**
  * The single source of truth for "what screen should this signed-in (or
  * signed-out) user see". Used both at boot and by login-screen /
@@ -169,17 +160,31 @@ async function resolveRouteForUser(user) {
 
   // Keep the local mirror in sync so greeting-screen and any offline
   // reads of "nickname" stay correct without a Firestore round-trip.
-  setItem('nickname', profile.nickname).catch(() => {});
+  // Scoped to this uid so a different account signing in later (or a
+  // shared/kiosk device) never reads someone else's cached nickname.
+  setUserItem(user.uid, 'nickname', profile.nickname).catch(() => {});
 
-  const hasSeenGreeting = await getItem('hasSeenGreeting');
+  const hasSeenGreeting = await getUserItem(user.uid, 'hasSeenGreeting');
   if (!hasSeenGreeting) return 'greeting';
 
   return 'home';
 }
 
-/** Exported for login-screen.js / verify-email-screen.js post-auth redirects. */
+/**
+ * Exported for login-screen.js / verify-email-screen.js post-auth
+ * redirects. Deliberately reads `getCurrentUser()` (Firebase's
+ * synchronous `auth.currentUser`) rather than the module-level
+ * `currentAuthUser` cache: `auth.currentUser` is updated synchronously as
+ * part of the sign-in call resolving, while `currentAuthUser` here is only
+ * updated by the async `onAuthStateChanged` listener below, which can fire
+ * a tick later. Using the stale variable right after a fresh sign-in was a
+ * real race — it could momentarily read `null` and bounce the user back to
+ * the login screen instead of onboarding/home.
+ */
 export async function resolvePostAuthRoute() {
-  return resolveRouteForUser(currentAuthUser);
+  const user = getCurrentUser();
+  currentAuthUser = user;
+  return resolveRouteForUser(user);
 }
 
 /**
