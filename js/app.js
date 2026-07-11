@@ -20,9 +20,12 @@
 
 import { getUserItem, setUserItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/router.js';
-import { initTheme } from './services/theme-service.js';
-import { restoreState } from './services/player-service.js';
+import { initTheme, applyPremiumThemeIfAny } from './services/theme-service.js';
+import { restoreState, setCrossfadeConfig, initEqualizerFromStorage } from './services/player-service.js';
+import { initAdManager } from './services/ad-manager.js';
 import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser } from './services/auth-service.js';
+import { initPremium, subscribePremium, hasPremiumAccess, waitForPremiumReady } from './services/premium-service.js';
+import { setCloudBackupActive } from './services/cloud-backup-service.js';
 import { renderLoginScreen } from './components/login-screen.js';
 import { renderVerifyEmailScreen } from './components/verify-email-screen.js';
 import { renderNicknameScreen } from './components/nickname-screen.js';
@@ -80,6 +83,12 @@ async function boot() {
   restoreState().catch((err) => {
     console.error('[Melody] Playback state restore failed — starting with an empty player.', err);
   });
+  initEqualizerFromStorage().catch((err) => {
+    console.error('[Melody] Equalizer preset restore failed — using Normal.', err);
+  });
+  initAdManager().catch((err) => {
+    console.error('[Melody] Ad manifest load failed — ads disabled for this session.', err);
+  });
 
   // ---------- Theme / settings ----------
   try {
@@ -96,6 +105,11 @@ async function boot() {
   let startRoute = 'login'; // safe fallback if anything below throws
   try {
     currentAuthUser = await waitForInitialUser();
+    initPremium(currentAuthUser?.uid || null);
+    // Premium theme (if selected on Basic+) restores only after premium
+    // status is verified via Firestore — never applied optimistically.
+    applyPremiumThemeIfAny(currentAuthUser?.uid || null).catch(() => {});
+    loadCrossfadeConfigForUser(currentAuthUser?.uid || null).catch(() => {});
     startRoute = await resolveRouteForUser(currentAuthUser);
     console.log(`[Melody] Auth resolved — start route resolved to "${startRoute}"`);
   } catch (err) {
@@ -107,7 +121,18 @@ async function boot() {
   // (e.g. the session is signed out in another tab, or a token expires).
   onAuthChange((user) => {
     const wasSignedIn = !!currentAuthUser;
+    const uidChanged = (currentAuthUser?.uid || null) !== (user?.uid || null);
     currentAuthUser = user;
+    if (uidChanged) {
+      initPremium(user?.uid || null);
+      if (user?.uid) {
+        applyPremiumThemeIfAny(user.uid).catch(() => {});
+        loadCrossfadeConfigForUser(user.uid).catch(() => {});
+      } else {
+        setCrossfadeConfig({ enabled: false });
+        setCloudBackupActive(null, false);
+      }
+    }
     if (wasSignedIn && !user) {
       navigate('login').catch((err) => console.error('[Melody] Failed to route to login after sign-out.', err));
     }
@@ -133,6 +158,23 @@ async function boot() {
   }
 
   registerServiceWorker();
+
+  // ---------- React immediately to premium status changes ----------
+  // Whenever the effective plan changes (expiry passing, a renewal
+  // arriving from another tab/device, sign-out), re-evaluate the Premium
+  // Theme right away rather than waiting for the next screen navigation.
+  // Crossfade/Equalizer/Queue features/Cloud Backup all read
+  // hasPremiumAccess() live at the moment they're used, so they don't
+  // need an explicit reset here — but the applied theme is a standing
+  // document-level effect, so it's the one thing that needs to be pushed.
+  let lastEffectivePlan = null;
+  subscribePremium((state) => {
+    if (!state.ready) return;
+    if (lastEffectivePlan !== null && lastEffectivePlan !== state.effectivePlan) {
+      applyPremiumThemeIfAny(currentAuthUser?.uid || null).catch(() => {});
+    }
+    lastEffectivePlan = state.effectivePlan;
+  });
 }
 
 /**
@@ -168,6 +210,21 @@ async function resolveRouteForUser(user) {
   if (!hasSeenGreeting) return 'greeting';
 
   return 'home';
+}
+
+/**
+ * Reads crossfadeEnabled/crossfadeDuration from Firestore and applies
+ * them to the player, honoring premium gating — only takes effect once
+ * premium status has actually been verified, same rule as the theme.
+ */
+async function loadCrossfadeConfigForUser(uid) {
+  if (!uid) return;
+  await waitForPremiumReady();
+  const profile = await getUserProfile(uid).catch(() => null);
+  const enabled = hasPremiumAccess('Basic') && Boolean(profile?.crossfadeEnabled);
+  const duration = Number.isFinite(profile?.crossfadeDuration) ? profile.crossfadeDuration : 3;
+  setCrossfadeConfig({ enabled, duration });
+  setCloudBackupActive(uid, Boolean(profile?.cloudBackupEnabled));
 }
 
 /**
