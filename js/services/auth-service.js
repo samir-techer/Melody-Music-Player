@@ -31,10 +31,14 @@ import { clearUserCache } from '../utils/storage.js';
 
 const googleProvider = new GoogleAuthProvider();
 
-// True on localhost / any non-production-looking host. Used only to decide
-// whether error surfaces show the raw Firebase code+message alongside the
-// friendly copy — never changes actual auth/Firestore behavior.
-const IS_DEV = ['localhost', '127.0.0.1'].includes(location.hostname) || location.hostname.endsWith('.local');
+// Shows the exact Firebase error code + message alongside the friendly
+// copy. Previously this only activated on localhost, which is useless for
+// a solo/small deployment being debugged directly on its real GitHub
+// Pages URL — there's no "localhost" in that workflow, so the raw error
+// was silently hidden exactly where it was needed. Toggle off later (set
+// to `false`) once the app has real end users you don't want seeing raw
+// error internals.
+const IS_DEV = true;
 
 /* -------------------------------------------------------------------- */
 /*  Auth state                                                          */

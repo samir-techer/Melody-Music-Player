@@ -41,25 +41,31 @@ console.log(`[Melody] Firebase app initialized (project: ${firebaseConfig.projec
 
 export const auth = getAuth(app);
 
-// Firestore with IndexedDB-backed offline persistence + multi-tab support.
+// Firestore with IndexedDB-backed offline persistence + multi-tab support,
+// AND long-polling instead of the default WebChannel/gRPC-Web streaming
+// transport.
 //
-// Without this, every getDoc/setDoc goes straight to the network with no
-// local queue — a brief signal drop (very common on cellular, and this is
-// a mobile-first app) surfaces immediately as `unavailable`, which reads
-// to the user as "couldn't reach the server" even though the app was
-// working fine a second earlier. With a persistent cache, reads serve
-// cached data and writes queue locally and sync automatically once
-// connectivity returns, instead of hard-failing onboarding/profile calls
-// on every brief network blip.
-//
-// Falls back to a plain (non-persistent) Firestore instance if the
-// environment can't support it (e.g. private/incognito mode in some
-// browsers, or a second tab already holding the persistence lock in a
-// browser without multi-tab support) — persistence is a resilience
-// improvement, not something sign-in should ever hard-depend on.
+// Evidence from this project's Firebase Console Usage tab: reads complete
+// (they're billed, so they demonstrably reach Firestore), but writes have
+// NEVER completed — not "sometimes fail," never once succeeded, on any
+// network, since the project's creation. Rules were checked and match
+// what the client sends, and reads use the exact same API key/project —
+// so it isn't rules or a key restriction. What's different about writes
+// (and realtime listeners) is that they require a long-lived streaming
+// connection, while a plain read is a single short request. Mobile
+// carrier NATs, some firewalls, and various proxies are well known to
+// allow short requests through while silently dropping or blocking
+// long-lived streaming connections — which reproduces exactly this
+// "reads work, writes/streams don't" pattern. `experimentalAutoDetectLongPolling`
+// makes the SDK detect this and fall back to plain HTTP long-polling,
+// which behaves like normal short-lived requests and survives on
+// networks that break streaming connections. This is Firebase's own
+// documented fix for "requests to Firestore fail on some networks."
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false,
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   });
   console.log('[Melody] Firestore initialized with persistent offline cache.');
