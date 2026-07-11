@@ -263,6 +263,17 @@
   animation: fade-in var(--duration-base) var(--ease-out);
 }
 
+/* `display: flex` above has the same specificity as the browser's default
+   `[hidden] { display: none }` rule, and — being an author-stylesheet rule —
+   wins the tie, so the `hidden` attribute alone doesn't actually hide this
+   element. Without this override the overlay renders on first paint even
+   though login-screen.js sets `hidden` by default and only clears it when
+   "Forgot password?" is clicked. Same fix already applied to .mini-player
+   and .queue-sheet elsewhere. */
+.auth-overlay[hidden] {
+  display: none;
+}
+
 .auth-forgot-card {
   background: #141310;
   border: 1px solid rgba(245, 241, 236, 0.08);
