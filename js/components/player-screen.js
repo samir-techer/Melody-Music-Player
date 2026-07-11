@@ -8,9 +8,12 @@
 import { navigate } from '../utils/router.js';
 import {
   subscribe, togglePlay, next, previous, seek,
-  toggleShuffle, cycleRepeatMode, playFromQueue, removeFromQueue,
+  toggleShuffle, cycleRepeatMode, playFromQueue, removeFromQueue, moveInQueue,
 } from '../services/player-service.js';
 import { isFavorite, toggleFavorite, subscribeFavorites } from '../services/favorites-service.js';
+import { hasPremiumAccess } from '../services/premium-service.js';
+import { subscribe as subscribeAd } from '../services/ad-manager.js';
+import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
 
 export async function renderPlayerScreen() {
   const el = document.createElement('div');
@@ -23,6 +26,12 @@ export async function renderPlayerScreen() {
         <button id="lyrics-toggle" aria-label="Lyrics">Aa</button>
         <button id="queue-toggle" aria-label="Queue">☰</button>
       </div>
+    </div>
+
+    <div class="ad-overlay" id="ad-overlay" hidden>
+      <span class="ad-badge">Advertisement</span>
+      <div class="ad-progress-track"><div class="ad-progress-fill" id="ad-progress-fill"></div></div>
+      <span class="ad-remaining" id="ad-remaining">0:00</span>
     </div>
 
     <div class="vinyl-stage">
@@ -84,6 +93,9 @@ export async function renderPlayerScreen() {
   const favoriteBtn = el.querySelector('#favorite-btn');
   const queueSheet = el.querySelector('#queue-sheet');
   const queueList = el.querySelector('#queue-list');
+  const adOverlay = el.querySelector('#ad-overlay');
+  const adProgressFill = el.querySelector('#ad-progress-fill');
+  const adRemaining = el.querySelector('#ad-remaining');
 
   let isDraggingSeek = false;
   let latestState = null;
@@ -102,6 +114,24 @@ export async function renderPlayerScreen() {
     currentTimeEl.textContent = formatTime(estimated);
   }
   rafId = requestAnimationFrame(animateSeekBar);
+
+  const queueToggleBtn = el.querySelector('#queue-toggle');
+  const previousBtn = el.querySelector('#btn-previous');
+  const nextBtn = el.querySelector('#btn-next');
+
+  // ---------- Ad overlay: badge, progress, remaining time; disables
+  // Next/Previous/Seek/Shuffle/Repeat/Queue for the duration of the ad. ----------
+  const unsubscribeAd = subscribeAd((adState) => {
+    adOverlay.hidden = !adState.isAdPlaying;
+    [shuffleBtn, previousBtn, nextBtn, repeatBtn, seekBar, queueToggleBtn].forEach((ctrl) => {
+      ctrl.disabled = adState.isAdPlaying;
+    });
+    if (adState.isAdPlaying) {
+      const pct = adState.duration > 0 ? (adState.currentTime / adState.duration) * 100 : 0;
+      adProgressFill.style.width = `${pct}%`;
+      adRemaining.textContent = formatTime(Math.max(0, (adState.duration || 0) - adState.currentTime));
+    }
+  });
 
   const unsubscribe = subscribe((state) => {
     latestState = state;
@@ -155,8 +185,14 @@ export async function renderPlayerScreen() {
       queueList.innerHTML = `<div class="empty-state"><p class="title">Queue is empty</p></div>`;
       return;
     }
+    // Queue Reordering is Basic+ (per spec). Free still sees and can play/
+    // remove from the queue exactly as before — only drag-to-reorder is
+    // new and gated, so nothing existing regresses for Free accounts.
+    const canReorder = hasPremiumAccess('Basic');
+
     queueList.innerHTML = state.queue.map((song, i) => `
-      <div class="queue-row ${i === state.index ? 'current' : ''}" data-index="${i}">
+      <div class="queue-row ${i === state.index ? 'current' : ''}" data-index="${i}" draggable="${canReorder}">
+        ${canReorder ? '<span class="queue-drag-handle" aria-hidden="true">⠿</span>' : '<span class="queue-drag-handle locked" aria-hidden="true">🔒</span>'}
         <div class="info">
           <div class="title">${escapeHtml(song.title)}</div>
           <div class="meta">${escapeHtml(song.artist)}</div>
@@ -168,8 +204,28 @@ export async function renderPlayerScreen() {
     queueList.querySelectorAll('.queue-row').forEach((row) => {
       row.addEventListener('click', (e) => {
         if (e.target.closest('.queue-remove')) return;
+        if (e.target.closest('.queue-drag-handle.locked')) {
+          showUpgradeDialog('Upgrade to Basic to reorder your queue by dragging.', 'Basic');
+          return;
+        }
         playFromQueue(Number(row.dataset.index));
       });
+
+      if (canReorder) {
+        row.addEventListener('dragstart', (e) => {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', row.dataset.index);
+          row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.addEventListener('dragover', (e) => e.preventDefault());
+        row.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const from = Number(e.dataTransfer.getData('text/plain'));
+          const to = Number(row.dataset.index);
+          moveInQueue(from, to);
+        });
+      }
     });
     queueList.querySelectorAll('.queue-remove').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -184,6 +240,7 @@ export async function renderPlayerScreen() {
   el._onLeave = () => {
     unsubscribe();
     unsubscribeFavs();
+    unsubscribeAd();
     if (rafId) cancelAnimationFrame(rafId);
   };
 

@@ -16,6 +16,8 @@ import { getAllSongs, sortSongs, searchSongs, removeSongs } from '../services/li
 import { loadQueue } from '../services/player-service.js';
 import { subscribeFavorites, setFavorite } from '../services/favorites-service.js';
 import { getRecentlyPlayedEntries } from '../services/history-service.js';
+import { hasPremiumAccess } from '../services/premium-service.js';
+import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
 import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
 import { renderSongListHtml, wireSongList } from './song-list.js';
@@ -239,8 +241,21 @@ export async function renderLibraryScreen(params = {}) {
       return;
     }
 
-    // ---------- Recently Played ----------
+    // ---------- Recently Played (Queue History — Basic+) ----------
     if (activeTab === 'recent') {
+      if (!hasPremiumAccess('Basic')) {
+        contentEl.innerHTML = `
+          <div class="empty-state locked-feature">
+            <p class="title">🔒 Queue History</p>
+            <p>Upgrade to Basic to see the songs you've recently played.</p>
+            <button type="button" class="btn-secondary" id="recent-upgrade-btn" style="width:auto;">See Melody Premium</button>
+          </div>`;
+        contentEl.querySelector('#recent-upgrade-btn')?.addEventListener('click', () => {
+          showUpgradeDialog('Upgrade to Basic to see the songs you\u2019ve recently played.', 'Basic');
+        });
+        return;
+      }
+
       const entries = await getRecentlyPlayedEntries();
       let recentSongs = entries.map((entry) => allSongs.find((s) => s.id === entry.id)).filter(Boolean);
       recentSongs = searchQuery ? searchSongs(recentSongs, searchQuery) : recentSongs;
