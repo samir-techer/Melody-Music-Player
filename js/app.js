@@ -23,8 +23,8 @@ import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/route
 import { initTheme, applyPremiumThemeIfAny } from './services/theme-service.js';
 import { restoreState, setCrossfadeConfig, initEqualizerFromStorage } from './services/player-service.js';
 import { initAdManager } from './services/ad-manager.js';
-import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser } from './services/auth-service.js';
-import { initPremium, subscribePremium, hasPremiumAccess, waitForPremiumReady } from './services/premium-service.js';
+import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser, signOutUser } from './services/auth-service.js';
+import { initPremium, subscribePremium, hasPremiumAccess, waitForPremiumReady, isAdmin } from './services/premium-service.js';
 import { setCloudBackupActive } from './services/cloud-backup-service.js';
 import { renderLoginScreen } from './components/login-screen.js';
 import { renderVerifyEmailScreen } from './components/verify-email-screen.js';
@@ -39,6 +39,7 @@ import { renderPremiumScreen } from './components/premium-screen.js';
 import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
+import { renderAdminScreen } from './components/admin-screen.js';
 
 let currentAuthUser = null;
 
@@ -73,6 +74,19 @@ async function boot() {
   registerRoute('music-hub', renderMusicHubScreen, { requiresAuth: true });
   registerRoute('metadata-editor', renderMetadataEditorScreen, { requiresAuth: true });
   registerRoute('lyrics', renderLyricsScreen, { requiresAuth: true });
+  registerRoute('admin', renderAdminScreen, {
+    requiresAuth: true,
+    // Re-verified against the live Firestore-backed premium-service state
+    // on EVERY navigation attempt — never a cached flag, never trusting
+    // that the Admin button simply wasn't clicked by mistake. Waits for
+    // the first snapshot if premium-service hasn't resolved yet (e.g. a
+    // very fast navigation right after boot) rather than racing to a
+    // false negative.
+    guard: async () => {
+      await waitForPremiumReady();
+      return isAdmin();
+    },
+  });
 
   setAuthGuard(() => !!currentAuthUser);
   console.log('[Melody] Router mounted');
@@ -199,6 +213,14 @@ async function resolveRouteForUser(user) {
   }
 
   if (!profile?.nickname) return 'nickname';
+
+  if (profile?.accountDisabled === true) {
+    console.warn(`[Melody] Account ${user.uid} is disabled — signing out.`);
+    const { showToast } = await import('./utils/toast.js');
+    showToast('This account has been disabled. Contact support if you think this is a mistake.');
+    await signOutUser().catch(() => {});
+    return 'login';
+  }
 
   // Keep the local mirror in sync so greeting-screen and any offline
   // reads of "nickname" stay correct without a Firestore round-trip.
