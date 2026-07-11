@@ -26,7 +26,7 @@ import {
   serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 
-import { auth, db } from './firebase-config.js';
+import { auth, db, isConfigProblem, reportConfigProblem } from './firebase-config.js';
 import { clearUserCache } from '../utils/storage.js';
 
 const googleProvider = new GoogleAuthProvider();
@@ -307,14 +307,24 @@ const FRIENDLY_ERRORS = {
   'auth/cancelled-popup-request': 'Google sign-in was cancelled.',
   'auth/popup-blocked': 'Your browser blocked the Google sign-in popup. Please allow popups and try again.',
   'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.',
+  // These four indicate a project-configuration problem, not a real
+  // connectivity issue — most often an API key Google has restricted or
+  // auto-suspended (routine for keys visible in a public repo, which is
+  // how this app is hosted), or a domain missing from Authorized domains.
   'auth/unauthorized-domain': 'This site isn\u2019t yet authorized for sign-in — add its domain in Firebase Authentication settings.',
   'auth/requests-from-referer-are-blocked': 'This site\u2019s API key is restricted — check the key\u2019s allowed domains in Google Cloud Console.',
+  'auth/invalid-api-key': 'This app\u2019s Firebase API key is invalid or has been suspended/restricted by Google — check the Firebase Console and Google Cloud Console > Credentials.',
+  'auth/api-key-not-valid.-please-pass-a-valid-api-key.': 'This app\u2019s Firebase API key is invalid or has been suspended/restricted by Google — check the Firebase Console and Google Cloud Console > Credentials.',
   'permission-denied': 'Your account was created, but saving your profile was blocked by Firestore\u2019s security rules — check they\u2019re published correctly.',
-  'unavailable': 'Couldn\u2019t reach the server. Check your connection and try again.',
+  'unavailable': 'Couldn\u2019t reach the server — usually a brief connection drop. It should recover automatically; try again in a moment.',
+  'failed-precondition': 'Firestore isn\u2019t set up correctly for this project — make sure a Firestore database (Native mode) has been created in the Firebase Console.',
+  'not-found': 'Firestore database not found for this project — create one in the Firebase Console if you haven\u2019t already.',
 };
 
 export function friendlyAuthError(err) {
   const code = err?.code || '';
+  if (isConfigProblem(err)) reportConfigProblem(err);
+
   const mapped = FRIENDLY_ERRORS[code];
   const base = mapped
     ? mapped
