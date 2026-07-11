@@ -1,0 +1,180 @@
+/* ==========================================================================
+   MELODY — ADMIN DASHBOARD
+   Internal tool, never seen by non-admins. Deliberately its own visual
+   register (dark, glassmorphism) rather than following the light-mode
+   default, per spec ("Dark Mode, Glassmorphism cards") — but built from
+   the same design tokens as the rest of the app so it still feels native.
+   ========================================================================== */
+
+.admin-screen {
+  --admin-bg: #0F1115;
+  --admin-card: rgba(255, 255, 255, 0.06);
+  --admin-border: rgba(255, 255, 255, 0.10);
+  --admin-text: #F2F2F4;
+  --admin-text-secondary: #9A9CA6;
+  --admin-accent: #7C9CFF;
+
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  min-height: 100%;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--space-4));
+}
+
+.admin-header { padding: var(--space-4) var(--space-4) 0; }
+.admin-header h1 { font-family: var(--font-display); font-size: var(--text-lg); margin: 0; }
+.admin-subtitle { color: var(--admin-text-secondary); font-size: var(--text-sm); margin: 4px 0 0; }
+
+.admin-tabs {
+  display: flex; gap: var(--space-2); overflow-x: auto;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--admin-border);
+}
+.admin-tab {
+  flex-shrink: 0; padding: 8px 16px; border-radius: var(--radius-full); border: 1px solid var(--admin-border);
+  background: transparent; color: var(--admin-text-secondary); font-size: var(--text-sm); font-weight: 600;
+}
+.admin-tab.active { background: var(--admin-accent); color: #0F1115; border-color: var(--admin-accent); }
+
+.admin-tab-content { padding: var(--space-4); }
+
+/* ---------- Cards ---------- */
+.admin-cards-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3);
+}
+.admin-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.admin-card.muted { opacity: 0.6; }
+.admin-card-icon { font-size: var(--text-lg); }
+.admin-card-value { font-size: var(--text-lg); font-weight: 700; margin-top: 4px; }
+.admin-card-label { font-size: var(--text-xs); color: var(--admin-text-secondary); margin-top: 2px; }
+
+.admin-hint { color: var(--admin-text-secondary); font-size: var(--text-sm); margin: var(--space-2) 0; }
+.admin-empty, .admin-error {
+  color: var(--admin-text-secondary); text-align: center; padding: var(--space-5) var(--space-3);
+}
+.admin-error { color: #FF8080; }
+
+.admin-loading-skeleton { display: grid; gap: var(--space-3); padding: var(--space-4); }
+.skeleton-card {
+  height: 72px; border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background-size: 400% 100%;
+  animation: admin-skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes admin-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ---------- Users toolbar + rows ---------- */
+.admin-users-toolbar {
+  display: grid; grid-template-columns: 1fr; gap: var(--space-2); margin-bottom: var(--space-3);
+}
+.admin-users-toolbar input,
+.admin-users-toolbar select {
+  background: var(--admin-card); border: 1px solid var(--admin-border); color: var(--admin-text);
+  border-radius: var(--radius-md); padding: 10px 12px; font-size: var(--text-sm);
+}
+
+.admin-user-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.admin-user-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+}
+.admin-user-avatar {
+  width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+}
+.admin-user-avatar-fallback {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--admin-accent); color: #0F1115; font-weight: 700;
+}
+.admin-user-info { flex: 1; min-width: 0; }
+.admin-user-name { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.admin-user-meta {
+  font-size: var(--text-xs); color: var(--admin-text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.admin-disabled-tag {
+  font-size: var(--text-xs); font-weight: 700; padding: 2px 8px; border-radius: var(--radius-full);
+  background: rgba(255, 96, 96, 0.18); color: #FF8080;
+}
+
+#admin-load-more, #admin-logs-more { width: 100%; margin-top: var(--space-3); }
+
+/* ---------- User management panel (bottom-sheet-style modal) ---------- */
+.admin-panel-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: flex-end; justify-content: center; z-index: 300;
+  opacity: 0; transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.admin-panel-overlay.open { opacity: 1; }
+.admin-panel {
+  width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto;
+  background: #14161C; color: var(--admin-text);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-4);
+  transform: translateY(24px); transition: transform var(--duration-fast) var(--ease-standard);
+}
+.admin-panel-overlay.open .admin-panel { transform: translateY(0); }
+.admin-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3); }
+.admin-panel-header h2 { font-size: var(--text-md); margin: 0; }
+.admin-panel-close { background: none; border: none; color: var(--admin-text-secondary); font-size: var(--text-md); }
+
+.admin-panel-section {
+  border-top: 1px solid var(--admin-border);
+  padding: var(--space-3) 0;
+}
+.admin-panel-section:first-of-type { border-top: none; padding-top: 0; }
+.admin-panel-section h3 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--admin-text-secondary); margin: 0 0 var(--space-2); }
+
+.admin-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--space-3); font-size: var(--text-sm); margin: 0 0 var(--space-2); }
+.admin-kv dt { color: var(--admin-text-secondary); }
+.admin-kv dd { margin: 0; overflow-wrap: anywhere; }
+.admin-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+.admin-raw-doc {
+  background: #0A0B0E; border: 1px solid var(--admin-border); border-radius: var(--radius-md);
+  padding: var(--space-2); font-size: var(--text-xs); overflow-x: auto; margin-top: var(--space-2);
+  max-height: 240px; overflow-y: auto;
+}
+
+.admin-inline-form { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-2); }
+.admin-inline-form select,
+.admin-inline-form input {
+  background: var(--admin-card); border: 1px solid var(--admin-border); color: var(--admin-text);
+  border-radius: var(--radius-sm); padding: 8px 10px; font-size: var(--text-sm);
+}
+.admin-panel-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.admin-panel-actions button { width: 100%; }
+
+/* ---------- Ads tab ---------- */
+.admin-ad-file-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.admin-ad-file-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* ---------- Logs tab ---------- */
+.admin-log-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.admin-log-row {
+  background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+.admin-log-action { font-weight: 600; font-size: var(--text-sm); }
+.admin-log-meta { font-size: var(--text-xs); color: var(--admin-text-secondary); margin-top: 2px; }
+
+/* Buttons inside the admin screen inherit Melody's shared .btn-secondary/
+   .toggle-switch styles from screens.css/premium.css — only the palette
+   is overridden here so they still read correctly on the dark surface. */
+.admin-screen .btn-secondary {
+  background: rgba(255,255,255,0.08); color: var(--admin-text); border: 1px solid var(--admin-border);
+}
+.admin-screen .btn-secondary.danger { background: rgba(255, 96, 96, 0.14); color: #FF8080; }
