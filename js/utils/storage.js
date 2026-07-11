@@ -59,3 +59,46 @@ export async function removeItem(key) {
     return true;
   }
 }
+
+/* -------------------------------------------------------------------- */
+/*  User-scoped keys                                                     */
+/* -------------------------------------------------------------------- */
+// Account-specific values (nickname, "has seen greeting", etc.) must NOT
+// live under a plain global key like "nickname" — on a shared/reused
+// device, signing out of Account A and into Account B would otherwise
+// still read Account A's cached nickname and "hasSeenGreeting" flag,
+// silently skipping onboarding for the new account or greeting them with
+// the wrong name. Every per-account read/write goes through these helpers
+// so the uid is always baked into the key.
+
+function userKey(uid, key) {
+  if (!uid) throw new Error(`[Melody] userKey("${key}") called without a uid.`);
+  return `user:${uid}:${key}`;
+}
+
+export function getUserItem(uid, key) {
+  return getItem(userKey(uid, key));
+}
+
+export function setUserItem(uid, key, value) {
+  return setItem(userKey(uid, key), value);
+}
+
+export function removeUserItem(uid, key) {
+  return removeItem(userKey(uid, key));
+}
+
+/**
+ * Wipes every per-account cached value for `uid`. Called on sign-out so a
+ * subsequent sign-in (same account or a different one, on the same
+ * device) never reads stale onboarding state. Safe to call even if the
+ * key list grows later — add new user-scoped keys to USER_SCOPED_KEYS.
+ */
+const USER_SCOPED_KEYS = ['nickname', 'hasSeenGreeting'];
+
+export async function clearUserCache(uid) {
+  if (!uid) return;
+  await Promise.all(
+    USER_SCOPED_KEYS.map((key) => removeUserItem(uid, key).catch(() => {})),
+  );
+}
