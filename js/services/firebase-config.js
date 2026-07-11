@@ -6,7 +6,7 @@
  * rest of Melody's "plain ES modules, no bundler" philosophy.
  */
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
+import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
 import {
   getAuth,
   setPersistence,
@@ -24,7 +24,15 @@ const firebaseConfig = {
   measurementId: 'G-C501Z4S39Z',
 };
 
-export const app = initializeApp(firebaseConfig);
+// ES modules are cached by the browser/bundler per URL, so importing this
+// file twice normally just returns the same module instance — but a
+// defensive check costs nothing and prevents the classic "Firebase App
+// named '[DEFAULT]' already exists" crash if this module ever ends up
+// duplicated (e.g. served from two different paths, or re-imported by a
+// future dynamic-import refactor).
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+console.log(`[Melody] Firebase app initialized (project: ${firebaseConfig.projectId})`);
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 

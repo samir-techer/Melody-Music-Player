@@ -27,8 +27,14 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 
 import { auth, db } from './firebase-config.js';
+import { clearUserCache } from '../utils/storage.js';
 
 const googleProvider = new GoogleAuthProvider();
+
+// True on localhost / any non-production-looking host. Used only to decide
+// whether error surfaces show the raw Firebase code+message alongside the
+// friendly copy — never changes actual auth/Firestore behavior.
+const IS_DEV = ['localhost', '127.0.0.1'].includes(location.hostname) || location.hostname.endsWith('.local');
 
 /* -------------------------------------------------------------------- */
 /*  Auth state                                                          */
@@ -63,26 +69,44 @@ export function getCurrentUser() {
 /* -------------------------------------------------------------------- */
 
 export async function signUpWithEmail(email, password) {
+  console.log('[Melody][auth] Sign-up (email) — starting');
   const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  console.log(`[Melody][auth] Sign-up (email) — Firebase account created uid=${cred.user.uid}`);
   await sendEmailVerification(cred.user);
+  console.log('[Melody][auth] Sign-up (email) — verification email sent');
   await ensureUserProfile(cred.user, 'Email');
   return cred.user;
 }
 
 export async function signInWithEmail(email, password) {
+  console.log('[Melody][auth] Sign-in (email) — starting');
   const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  console.log(`[Melody][auth] Sign-in (email) — success uid=${cred.user.uid}`);
   await ensureUserProfile(cred.user, 'Email');
   return cred.user;
 }
 
 export async function signInWithGoogle() {
+  console.log('[Melody][auth] Sign-in (Google) — starting');
   const cred = await signInWithPopup(auth, googleProvider);
+  console.log(`[Melody][auth] Sign-in (Google) — success uid=${cred.user.uid}`);
   await ensureUserProfile(cred.user, 'Google');
   return cred.user;
 }
 
 export async function signOutUser() {
+  const uid = auth.currentUser?.uid;
   await signOut(auth);
+  console.log('[Melody][auth] Signed out');
+  // Wipe this account's cached onboarding state (nickname, hasSeenGreeting)
+  // so a different account signing in on the same device — or this same
+  // account signing back in after data changed server-side — never reads
+  // stale local values. Non-fatal: sign-out itself already succeeded.
+  if (uid) {
+    await clearUserCache(uid).catch((err) => {
+      console.warn('[Melody][auth] Could not clear local cache on sign-out (non-fatal).', err);
+    });
+  }
 }
 
 export async function resendVerificationEmail() {
@@ -107,74 +131,145 @@ export async function sendResetPasswordEmail(email) {
 
 const USERS_COLLECTION = 'users';
 
+// Keyed by uid. Guards against duplicate profile-creation attempts when
+// ensureUserProfile is called more than once in quick succession for the
+// same account — e.g. a fast double sign-in click, or app.js's boot-time
+// auth check and login-screen's post-auth call both firing close together.
+// Without this, two concurrent getDoc() reads can both see "doesn't exist"
+// and both fire a create — wasted writes at best, a lost lastLogin update
+// at worst. Callers for the same uid share one in-flight promise instead.
+const profileEnsureInFlight = new Map();
+
 /**
  * Creates the user's Firestore profile document on their very first
- * sign-in, using setDoc(..., { merge: true }) so calling this again on
- * every later login is always safe (it never clobbers fields like
- * premiumPlan or totalSongs — it only fills in anything missing and
- * bumps lastLogin).
+ * sign-in. If the document already exists it is left alone (aside from
+ * bumping lastLogin) — this never clobbers fields like premiumPlan or
+ * totalSongs.
  */
-export async function ensureUserProfile(user, provider) {
-  const ref = doc(db, USERS_COLLECTION, user.uid);
-  const snap = await getDoc(ref);
+export function ensureUserProfile(user, provider) {
+  const uid = user.uid;
+  if (profileEnsureInFlight.has(uid)) {
+    console.log(`[Melody][auth] Profile ensure already in flight for uid=${uid} — reusing it.`);
+    return profileEnsureInFlight.get(uid);
+  }
+
+  const task = ensureUserProfileImpl(user, provider).finally(() => {
+    profileEnsureInFlight.delete(uid);
+  });
+  profileEnsureInFlight.set(uid, task);
+  return task;
+}
+
+async function ensureUserProfileImpl(user, provider) {
+  const uid = user.uid;
+  const ref = doc(db, USERS_COLLECTION, uid);
+  console.log(`[Melody][auth] Profile lookup — users/${uid}`);
+
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (err) {
+    console.error(`[Melody][auth] Profile lookup failed for users/${uid}.`, err);
+    throw err;
+  }
 
   if (!snap.exists()) {
-    await setDoc(ref, {
-      uid: user.uid,
-      nickname: user.displayName || null,
-      email: user.email || null,
-      profilePhoto: user.photoURL || null,
-      provider,
-      accountCreated: serverTimestamp(),
-      premiumPlan: 'Free',
-      premiumExpiry: null,
-      role: 'User',
-      totalSongs: 0,
-      totalListeningTime: 0,
-      lastLogin: serverTimestamp(),
-    });
+    console.log(`[Melody][auth] Profile does not exist — creating users/${uid} (provider=${provider})`);
+    try {
+      await setDoc(ref, {
+        uid,
+        nickname: user.displayName || null,
+        email: user.email || null,
+        profilePhoto: user.photoURL || null,
+        provider,
+        accountCreated: serverTimestamp(),
+        premiumPlan: 'Free',
+        premiumExpiry: null,
+        role: 'User',
+        totalSongs: 0,
+        totalListeningTime: 0,
+        lastLogin: serverTimestamp(),
+      });
+      console.log(`[Melody][auth] Profile created — users/${uid}`);
+    } catch (err) {
+      console.error(`[Melody][auth] Profile creation failed for users/${uid}.`, err);
+      throw err;
+    }
   } else {
-    await updateDoc(ref, { lastLogin: serverTimestamp() });
+    console.log(`[Melody][auth] Profile exists — skipping creation, bumping lastLogin for users/${uid}`);
+    try {
+      await updateDoc(ref, { lastLogin: serverTimestamp() });
+    } catch (err) {
+      // Non-fatal: the user already has a working profile document, so a
+      // failed lastLogin bump shouldn't block sign-in or show an error.
+      console.warn(`[Melody][auth] Could not update lastLogin for users/${uid} (non-fatal).`, err);
+    }
   }
 }
 
 export async function getUserProfile(uid) {
-  const snap = await getDoc(doc(db, USERS_COLLECTION, uid));
-  return snap.exists() ? snap.data() : null;
+  console.log(`[Melody][auth] Profile read — users/${uid}`);
+  try {
+    const snap = await getDoc(doc(db, USERS_COLLECTION, uid));
+    if (!snap.exists()) {
+      console.log(`[Melody][auth] Profile read — users/${uid} does not exist`);
+      return null;
+    }
+    return snap.data();
+  } catch (err) {
+    console.error(`[Melody][auth] Profile read failed for users/${uid}.`, err);
+    throw err;
+  }
 }
 
 /** Sets the nickname in both Firestore and the Firebase Auth profile. */
 export async function setUserNickname(uid, nickname) {
   const ref = doc(db, USERS_COLLECTION, uid);
-  const snap = await getDoc(ref);
+  console.log(`[Melody][auth] Nickname save — starting for users/${uid}`);
 
-  if (!snap.exists()) {
-    // Profile document never got created (e.g. a dropped connection
-    // during sign-up) — recreate it in full now instead of just writing
-    // the nickname on top of nothing, so premiumPlan/role/etc. aren't
-    // silently missing afterward.
-    const user = auth.currentUser;
-    await setDoc(ref, {
-      uid,
-      nickname,
-      email: user?.email || null,
-      profilePhoto: user?.photoURL || null,
-      provider: user?.providerData.some((p) => p.providerId === 'google.com') ? 'Google' : 'Email',
-      accountCreated: serverTimestamp(),
-      premiumPlan: 'Free',
-      premiumExpiry: null,
-      role: 'User',
-      totalSongs: 0,
-      totalListeningTime: 0,
-      lastLogin: serverTimestamp(),
-    });
-  } else {
-    await setDoc(ref, { nickname }, { merge: true });
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (err) {
+    console.error(`[Melody][auth] Nickname save — profile lookup failed for users/${uid}.`, err);
+    throw err;
+  }
+
+  try {
+    if (!snap.exists()) {
+      // Profile document never got created (e.g. a dropped connection
+      // during sign-up) — recreate it in full now instead of just writing
+      // the nickname on top of nothing, so premiumPlan/role/etc. aren't
+      // silently missing afterward.
+      console.log(`[Melody][auth] Nickname save — users/${uid} has no profile yet, recreating it in full`);
+      const user = auth.currentUser;
+      await setDoc(ref, {
+        uid,
+        nickname,
+        email: user?.email || null,
+        profilePhoto: user?.photoURL || null,
+        provider: user?.providerData.some((p) => p.providerId === 'google.com') ? 'Google' : 'Email',
+        accountCreated: serverTimestamp(),
+        premiumPlan: 'Free',
+        premiumExpiry: null,
+        role: 'User',
+        totalSongs: 0,
+        totalListeningTime: 0,
+        lastLogin: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, { nickname }, { merge: true });
+    }
+    console.log(`[Melody][auth] Nickname save — saved "${nickname}" to users/${uid}`);
+  } catch (err) {
+    console.error(`[Melody][auth] Nickname save — Firestore write failed for users/${uid}.`, err);
+    throw err;
   }
 
   if (auth.currentUser && auth.currentUser.uid === uid) {
-    await updateProfile(auth.currentUser, { displayName: nickname }).catch(() => {
+    await updateProfile(auth.currentUser, { displayName: nickname }).catch((err) => {
       // Non-fatal — Firestore is the source of truth Melody actually reads from.
+      console.warn('[Melody][auth] Could not mirror nickname onto the Firebase Auth profile (non-fatal).', err);
     });
   }
 }
@@ -221,8 +316,18 @@ const FRIENDLY_ERRORS = {
 export function friendlyAuthError(err) {
   const code = err?.code || '';
   const mapped = FRIENDLY_ERRORS[code];
-  if (mapped) return mapped;
-  // Unmapped code — still show something actionable instead of a dead end,
-  // and surface the raw code so it can be looked up/reported.
-  return code ? `Something went wrong (${code}). Please try again.` : 'Something went wrong. Please try again.';
+  const base = mapped
+    ? mapped
+    // Unmapped code — still show something actionable instead of a dead end,
+    // and surface the raw code so it can be looked up/reported.
+    : (code ? `Something went wrong (${code}). Please try again.` : 'Something went wrong. Please try again.');
+
+  // In development, always append the exact Firebase code + message so the
+  // real cause (a misconfigured Firestore rule, a bad API key restriction,
+  // etc.) is visible immediately instead of hiding behind friendly copy.
+  if (IS_DEV && err) {
+    const detail = [code, err.message].filter(Boolean).join(': ');
+    if (detail) return `${base}\n[dev] ${detail}`;
+  }
+  return base;
 }
