@@ -5,7 +5,7 @@
  * real music import + a live library render pulled from IndexedDB.
  */
 
-import { getItem } from '../utils/storage.js';
+import { getUserItem } from '../utils/storage.js';
 import { getTimeOfDayLabel, getTimeOfDayEmoji } from '../utils/time-of-day.js';
 import { toggleTheme, getThemeMode } from '../services/theme-service.js';
 import { importFiles } from '../services/import-service.js';
@@ -14,6 +14,7 @@ import { loadQueue } from '../services/player-service.js';
 import { getArtworkUrl } from '../services/artwork-service.js';
 import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
+import { getCurrentUser } from '../services/auth-service.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums' },
@@ -27,7 +28,8 @@ const LIBRARY_LINKS = [
 export async function renderHomeScreen() {
   let nickname = 'friend';
   try {
-    nickname = (await getItem('nickname')) || 'friend';
+    const currentUser = getCurrentUser();
+    nickname = (currentUser && (await getUserItem(currentUser.uid, 'nickname'))) || 'friend';
   } catch (err) {
     console.error('[Melody] Home: failed to load nickname — using default.', err);
   }

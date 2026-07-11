@@ -7,9 +7,9 @@
  * person actually wants to be called.
  */
 
-import { setItem } from '../utils/storage.js';
+import { setUserItem } from '../utils/storage.js';
 import { navigate } from '../utils/router.js';
-import { getCurrentUser, setUserNickname } from '../services/auth-service.js';
+import { getCurrentUser, setUserNickname, friendlyAuthError } from '../services/auth-service.js';
 
 export function renderNicknameScreen() {
   const user = getCurrentUser();
@@ -70,14 +70,22 @@ export function renderNicknameScreen() {
     errorEl.hidden = true;
     try {
       const currentUser = getCurrentUser();
-      if (currentUser) {
-        await setUserNickname(currentUser.uid, nickname);
+      if (!currentUser) {
+        // Session dropped mid-onboarding (token expired, signed out in
+        // another tab, etc.) — don't attempt a write with no owner uid,
+        // send them back to sign in instead of showing a dead-end error.
+        console.warn('[Melody] Nickname submit — no signed-in user, redirecting to login.');
+        await navigate('login');
+        return;
       }
-      await setItem('nickname', nickname); // local mirror for fast/offline reads
+      console.log(`[Melody] Nickname submit — saving "${nickname}" for uid=${currentUser.uid}`);
+      await setUserNickname(currentUser.uid, nickname);
+      await setUserItem(currentUser.uid, 'nickname', nickname); // local mirror for fast/offline reads
+      console.log('[Melody] Nickname submit — saved, navigating to greeting');
       await navigate('greeting');
     } catch (err) {
       console.error('[Melody] Failed to save nickname.', err);
-      errorEl.textContent = 'Couldn\u2019t save your nickname — check your connection and try again.';
+      errorEl.textContent = friendlyAuthError(err);
       errorEl.hidden = false;
       submitBtn.disabled = false;
     }

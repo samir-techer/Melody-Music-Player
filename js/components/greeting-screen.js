@@ -5,12 +5,14 @@
  * flag on every future launch and routes straight to Home instead.
  */
 
-import { getItem, setItem } from '../utils/storage.js';
+import { getUserItem, setUserItem } from '../utils/storage.js';
 import { navigate } from '../utils/router.js';
 import { getTimeOfDayLabel } from '../utils/time-of-day.js';
+import { getCurrentUser } from '../services/auth-service.js';
 
 export async function renderGreetingScreen() {
-  const nickname = (await getItem('nickname')) || 'friend';
+  const user = getCurrentUser();
+  const nickname = (user && (await getUserItem(user.uid, 'nickname'))) || 'friend';
   const timeLabel = getTimeOfDayLabel(); // "Morning" | "Afternoon" | "Evening" | "Night"
 
   const el = document.createElement('div');
@@ -36,7 +38,10 @@ export async function renderGreetingScreen() {
   `;
 
   el.querySelector('#start-listening').addEventListener('click', async () => {
-    await setItem('hasSeenGreeting', true);
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      await setUserItem(currentUser.uid, 'hasSeenGreeting', true);
+    }
     await navigate('home');
   });
 
