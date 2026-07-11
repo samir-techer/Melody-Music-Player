@@ -179,6 +179,7 @@
   border: 1px solid rgba(224, 112, 92, 0.25);
   border-radius: var(--radius-sm);
   padding: var(--space-2);
+  white-space: pre-line;
 }
 
 .auth-success {
