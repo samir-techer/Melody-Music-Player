@@ -29,7 +29,7 @@ import {
   getNicknameChangeStatus, changeNicknameWithLimit, friendlyAuthError,
 } from '../services/auth-service.js';
 import {
-  hasPremiumAccess, getEffectivePlan, subscribePremium,
+  hasPremiumAccess, getEffectivePlan, subscribePremium, isAdmin,
 } from '../services/premium-service.js';
 import {
   setCrossfadeConfig, getCrossfadeConfig, EQ_PRESETS, setEqualizerPreset, getEqualizerPreset,
@@ -59,6 +59,7 @@ export async function renderSettingsScreen() {
 
   const isBasicPlus = hasPremiumAccess('Basic');
   const effectivePlan = getEffectivePlan();
+  const isAdminUser = isAdmin();
   const selectedPremiumTheme = authUser ? await getSelectedPremiumTheme(authUser.uid) : null;
   const crossfade = getCrossfadeConfig();
   const eqPreset = getEqualizerPreset();
@@ -115,6 +116,16 @@ export async function renderSettingsScreen() {
       </div>
       <button class="btn-secondary danger" id="logout-btn" type="button">Log Out</button>
     </section>
+
+    ${isAdminUser ? `
+    <section class="section">
+      <button class="settings-list" id="admin-dashboard-btn" type="button">
+        <div class="settings-row">
+          <span>⚙️ Admin Dashboard</span>
+          <span class="settings-value">&rsaquo;</span>
+        </div>
+      </button>
+    </section>` : ''}
 
     <section class="section">
       <button class="settings-list premium-promo" id="premium-promo-btn" type="button">
@@ -252,6 +263,11 @@ export async function renderSettingsScreen() {
   el.querySelector('#premium-promo-btn').addEventListener('click', async () => {
     const { navigate } = await import('../utils/router.js');
     navigate('premium');
+  });
+
+  el.querySelector('#admin-dashboard-btn')?.addEventListener('click', async () => {
+    const { navigate } = await import('../utils/router.js');
+    navigate('admin');
   });
 
   el.querySelector('#logout-btn').addEventListener('click', async () => {
@@ -485,9 +501,11 @@ export async function renderSettingsScreen() {
   /*  (e.g. expiry passing) so locked/unlocked state never goes stale.  */
   /* ---------------------------------------------------------------- */
   let lastPlan = effectivePlan;
+  let lastIsAdmin = isAdminUser;
   const unsubscribePremium = subscribePremium((state) => {
-    if (state.ready && state.effectivePlan !== lastPlan) {
+    if (state.ready && (state.effectivePlan !== lastPlan || isAdmin() !== lastIsAdmin)) {
       lastPlan = state.effectivePlan;
+      lastIsAdmin = isAdmin();
       import('../utils/router.js').then(({ navigate }) => navigate('settings'));
     }
   });
