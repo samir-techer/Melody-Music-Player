@@ -8,13 +8,24 @@
 
 const routes = new Map();
 const guardedRoutes = new Set();
+const routeGuards = new Map(); // name -> async () => boolean ("may this render proceed?")
 let rootEl = null;
 let currentName = null;
 let authGuardFn = null; // () => boolean — returns true if the current session is authenticated
 
-export function registerRoute(name, renderFn, { requiresAuth = false } = {}) {
+/**
+ * `guard`, if provided, is an async function re-checked on every single
+ * navigation to this route (never cached) — used for role-gated screens
+ * like Admin, where "requiresAuth" (signed in at all) isn't strict enough
+ * and the check must come from a live Firestore-verified source, not a
+ * DOM/button-visibility assumption. Returning false redirects to Home
+ * before the route's render function ever runs, so no route-specific
+ * data is fetched for someone who fails the guard.
+ */
+export function registerRoute(name, renderFn, { requiresAuth = false, guard = null } = {}) {
   routes.set(name, renderFn);
   if (requiresAuth) guardedRoutes.add(name);
+  if (guard) routeGuards.set(name, guard);
 }
 
 export function initRouter(root) {
@@ -37,6 +48,15 @@ export async function navigate(name, params = {}) {
   if (guardedRoutes.has(name) && authGuardFn && !authGuardFn()) {
     console.warn(`[Melody] Blocked navigation to guarded route "${name}" — user is not authenticated.`);
     name = 'login';
+  }
+
+  const routeGuard = routeGuards.get(name);
+  if (routeGuard) {
+    const allowed = await routeGuard();
+    if (!allowed) {
+      console.warn(`[Melody] Blocked navigation to guarded route "${name}" — route guard denied access.`);
+      name = 'home';
+    }
   }
 
   const renderFn = routes.get(name);
