@@ -42,36 +42,40 @@ console.log(`[Melody] Firebase app initialized (project: ${firebaseConfig.projec
 export const auth = getAuth(app);
 
 // Firestore with IndexedDB-backed offline persistence + multi-tab support,
-// AND long-polling instead of the default WebChannel/gRPC-Web streaming
-// transport.
+// long-polling (helps on restrictive networks), AND — this is the actual
+// root cause of every read/write failure so far — explicitly targeting
+// this project's "default" database by name.
 //
-// Evidence from this project's Firebase Console Usage tab: reads complete
-// (they're billed, so they demonstrably reach Firestore), but writes have
-// NEVER completed — not "sometimes fail," never once succeeded, on any
-// network, since the project's creation. Rules were checked and match
-// what the client sends, and reads use the exact same API key/project —
-// so it isn't rules or a key restriction. What's different about writes
-// (and realtime listeners) is that they require a long-lived streaming
-// connection, while a plain read is a single short request. Mobile
-// carrier NATs, some firewalls, and various proxies are well known to
-// allow short requests through while silently dropping or blocking
-// long-lived streaming connections — which reproduces exactly this
-// "reads work, writes/streams don't" pattern. `experimentalAutoDetectLongPolling`
-// makes the SDK detect this and fall back to plain HTTP long-polling,
-// which behaves like normal short-lived requests and survives on
-// networks that break streaming connections. This is Firebase's own
-// documented fix for "requests to Firestore fail on some networks."
+// Firestore supports multiple databases per project. There's a special
+// built-in database literally named "(default)" that the SDK targets
+// automatically when no database name is given — which is what every
+// prior version of this file did. But a direct request to
+// https://firestore.googleapis.com/v1/projects/music-player-51973/databases/(default)/documents/users
+// came back `404 NOT_FOUND: "The database (default) does not exist for
+// project music-player-51973"`. The database visible and working in the
+// Firebase Console is a separate, custom-named database called "default"
+// (no parentheses) — a different database to Firestore even though it
+// looks identical in the console UI. The built-in "(default)" database
+// was simply never created, so every request to it 404'd — which,
+// depending on path, the client SDK surfaced as "unavailable" or "client
+// is offline" rather than a clean 404, since that's not a response shape
+// the SDK expects for a normal document request.
+//
+// Passing the database ID explicitly points the SDK at the database that
+// actually exists.
+const FIRESTORE_DATABASE_ID = 'default';
+
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
     useFetchStreams: false,
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-  });
-  console.log('[Melody] Firestore initialized with persistent offline cache.');
+  }, FIRESTORE_DATABASE_ID);
+  console.log(`[Melody] Firestore initialized (database: "${FIRESTORE_DATABASE_ID}", persistent offline cache on).`);
 } catch (err) {
   console.warn('[Melody] Firestore persistent cache unavailable — falling back to in-memory cache.', err);
-  firestoreDb = getFirestore(app);
+  firestoreDb = getFirestore(app, FIRESTORE_DATABASE_ID);
 }
 export const db = firestoreDb;
 
