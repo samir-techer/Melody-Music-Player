@@ -52,8 +52,49 @@ import { showToast } from '../utils/toast.js';
 import { getItem, setItem } from '../utils/storage.js';
 import { recordPlay } from './history-service.js';
 import { getSong, incrementPlayCount } from './library-service.js';
+import { hasPremiumAccess } from './premium-service.js';
+import { notifySongCompleted, isAdCurrentlyPlaying, initAdManager } from './ad-manager.js';
 
 const PLAYBACK_STATE_KEY = 'playbackState';
+const EQ_PRESET_KEY = 'equalizerPreset';
+
+/**
+ * Premium — Equalizer presets (Basic+). Free is always forced to
+ * "normal" regardless of what's stored locally, so a lapsed subscription
+ * silently falls back to flat rather than erroring.
+ * Values are dB gain for a 3-band shelf/peaking chain (bass/mid/treble).
+ */
+export const EQ_PRESETS = {
+  normal:    { label: 'Normal',      bass: 0,  mid: 0,  treble: 0,  requiredPlan: 'Free'  },
+  bassBoost: { label: 'Bass Boost',  bass: 7,  mid: 1,  treble: -1, requiredPlan: 'Basic' },
+  vocal:     { label: 'Vocal',       bass: -2, mid: 5,  treble: 2,  requiredPlan: 'Basic' },
+  rock:      { label: 'Rock',       bass: 4,  mid: -2, treble: 3,  requiredPlan: 'Basic' },
+  pop:       { label: 'Pop',         bass: 2,  mid: 1,  treble: 2,  requiredPlan: 'Basic' },
+  classical: { label: 'Classical',  bass: 1,  mid: 0,  treble: 3,  requiredPlan: 'Basic' },
+};
+
+/**
+ * Premium — Crossfade (Basic+). Given player-service owns exactly ONE
+ * <audio> element by design (see file header — this single-source
+ * guarantee is what fixed the garbled-audio bugs above), true overlapping
+ * dual-source crossfade would mean a second concurrent element, which
+ * directly conflicts with that guarantee. Instead this implements a
+ * fade-out / fade-in transition through the existing gainNode: the last
+ * `crossfadeDuration` seconds of a track fade out, the next track loads,
+ * and its first ~600ms fades back in. Audibly a crossfade-style
+ * transition; architecturally still single-source.
+ */
+let crossfadeConfig = { enabled: false, duration: 3 };
+let crossfadeArmed = false; // true once we've started fading out for the current track boundary
+
+export function setCrossfadeConfig({ enabled, duration } = {}) {
+  if (typeof enabled === 'boolean') crossfadeConfig.enabled = enabled;
+  if (Number.isFinite(duration)) crossfadeConfig.duration = Math.max(0, Math.min(10, duration));
+}
+
+export function getCrossfadeConfig() {
+  return { ...crossfadeConfig };
+}
 
 const audio = new Audio();
 audio.preload = 'auto';
@@ -63,7 +104,11 @@ try { audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitP
 
 // ---------- Web Audio graph (lazy — created on first user-gesture play) ----------
 let audioCtx = null;
-let gainNode = null;
+let gainNode = null; // dedicated to crossfade fades — never repurposed for volume/EQ
+let eqBass = null;
+let eqMid = null;
+let eqTreble = null;
+let currentEqPreset = 'normal';
 
 function ensureAudioGraph() {
   if (audioCtx) return;
@@ -74,12 +119,61 @@ function ensureAudioGraph() {
     const sourceNode = audioCtx.createMediaElementSource(audio);
     gainNode = audioCtx.createGain();
     gainNode.gain.value = 1; // single, fixed gain stage — never doubled up elsewhere
-    sourceNode.connect(gainNode).connect(audioCtx.destination);
+
+    // 3-band EQ chain — flat (0 dB) by default, i.e. identical to "Normal".
+    // Free accounts simply never have anything but "normal" applied to
+    // this chain (see setEqualizerPreset), so the audio path for Free
+    // users is unchanged from before this feature existed.
+    eqBass = audioCtx.createBiquadFilter();
+    eqBass.type = 'lowshelf';
+    eqBass.frequency.value = 200;
+    eqMid = audioCtx.createBiquadFilter();
+    eqMid.type = 'peaking';
+    eqMid.frequency.value = 1000;
+    eqMid.Q.value = 0.9;
+    eqTreble = audioCtx.createBiquadFilter();
+    eqTreble.type = 'highshelf';
+    eqTreble.frequency.value = 4000;
+
+    sourceNode.connect(gainNode).connect(eqBass).connect(eqMid).connect(eqTreble).connect(audioCtx.destination);
   } catch (err) {
     // If this ever throws (e.g. graph already built for this element),
     // playback still works through the plain <audio> element unmodified.
     console.warn('[Melody] Player: Web Audio graph unavailable, using plain <audio> element.', err);
   }
+}
+
+/**
+ * Applies an equalizer preset. Free accounts are always forced to
+ * "normal" here regardless of what's asked for or what's stored locally —
+ * this is the one place that enforces "Free users: Only Normal" for the
+ * actual audio path, independent of whatever the Settings UI shows.
+ */
+export function setEqualizerPreset(presetKey) {
+  const requestedPreset = EQ_PRESETS[presetKey] ? presetKey : 'normal';
+  const allowed = hasPremiumAccess(EQ_PRESETS[requestedPreset].requiredPlan) ? requestedPreset : 'normal';
+  currentEqPreset = allowed;
+  setItem(EQ_PRESET_KEY, allowed).catch(() => {});
+
+  ensureAudioGraph();
+  const preset = EQ_PRESETS[allowed];
+  if (eqBass && eqMid && eqTreble && audioCtx) {
+    const now = audioCtx.currentTime;
+    eqBass.gain.setTargetAtTime(preset.bass, now, 0.05);
+    eqMid.gain.setTargetAtTime(preset.mid, now, 0.05);
+    eqTreble.gain.setTargetAtTime(preset.treble, now, 0.05);
+  }
+  return allowed;
+}
+
+export function getEqualizerPreset() {
+  return currentEqPreset;
+}
+
+/** Loads the saved preset (if any) and re-applies plan gating — call once at boot. */
+export async function initEqualizerFromStorage() {
+  const saved = await getItem(EQ_PRESET_KEY).catch(() => null);
+  setEqualizerPreset(saved || 'normal');
 }
 
 async function resumeAudioGraphIfNeeded() {
@@ -300,13 +394,23 @@ function stepIndex(direction) {
   return shuffleOrder[nextPos];
 }
 
-export function next() {
-  if (queue.length === 0) return;
-  return loadIndex(stepIndex(1), { autoplay: true });
+export async function next() {
+  if (queue.length === 0 || isAdCurrentlyPlaying()) return;
+  const targetIndex = stepIndex(1);
+
+  // Manual Next counts as a completed song, same as a natural end. Pause
+  // the current song first — if an ad is due, it should never overlap
+  // with the song being left behind.
+  audio.pause();
+  const myTokenAtAdTime = loadToken;
+  await notifySongCompleted().catch((err) => console.error('[Melody] Ad playback failed (non-fatal).', err));
+  if (myTokenAtAdTime !== loadToken) return; // superseded while the ad was playing
+
+  return loadIndex(targetIndex, { autoplay: true });
 }
 
 export function previous() {
-  if (queue.length === 0) return;
+  if (queue.length === 0 || isAdCurrentlyPlaying()) return;
   // If we're more than 3s into the song, "previous" restarts it first —
   // standard player convention — a second tap within that window goes
   // back a track.
@@ -320,13 +424,13 @@ export function previous() {
 
 /** Play a specific position in the current queue directly (e.g. from a Queue sheet). */
 export function playFromQueue(queueIndex) {
-  if (queueIndex < 0 || queueIndex >= queue.length) return;
+  if (queueIndex < 0 || queueIndex >= queue.length || isAdCurrentlyPlaying()) return;
   return loadIndex(queueIndex, { autoplay: true });
 }
 
 /** Seek to an absolute time in seconds. */
 export function seek(time) {
-  if (!Number.isFinite(time)) return;
+  if (!Number.isFinite(time) || isAdCurrentlyPlaying()) return;
   try {
     audio.currentTime = Math.max(0, Math.min(time, audio.duration || time));
   } catch (err) {
@@ -362,6 +466,7 @@ export function setShuffle(enabled) {
 }
 
 export function toggleShuffle() {
+  if (isAdCurrentlyPlaying()) return shuffle;
   setShuffle(!shuffle);
   return shuffle;
 }
@@ -374,6 +479,7 @@ export function setRepeatMode(mode) {
 
 /** Cycles Off -> All -> One -> Off. */
 export function cycleRepeatMode() {
+  if (isAdCurrentlyPlaying()) return repeatMode;
   repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
   notify();
   return repeatMode;
@@ -408,7 +514,7 @@ export function playNext(song) {
 
 /** Remove a song at a given queue position. Adjusts the playing index safely. */
 export function removeFromQueue(queueIndex) {
-  if (queueIndex < 0 || queueIndex >= queue.length) return;
+  if (queueIndex < 0 || queueIndex >= queue.length || isAdCurrentlyPlaying()) return;
   const wasCurrent = queueIndex === index;
   queue.splice(queueIndex, 1);
 
@@ -430,7 +536,7 @@ export function removeFromQueue(queueIndex) {
 
 /** Reorder the queue by moving the item at `from` to position `to`. */
 export function moveInQueue(from, to) {
-  if (from < 0 || from >= queue.length || to < 0 || to >= queue.length || from === to) return;
+  if (from < 0 || from >= queue.length || to < 0 || to >= queue.length || from === to || isAdCurrentlyPlaying()) return;
   const [moved] = queue.splice(from, 1);
   queue.splice(to, 0, moved);
 
@@ -458,11 +564,29 @@ audio.addEventListener('playing', () => {
     lastRecordedSongId = song.id;
     recordPlay(song.id);
     incrementPlayCount(song.id).catch((err) => console.error('[Melody] Play count update failed.', err));
+
+    // Crossfade fade-in: the previous track's "ended"/manual-skip path
+    // just armed a new load with gain still ramped toward 0 — bring it
+    // back up over the same configured duration (capped short, so a
+    // manual skip mid-song never causes an audible multi-second fade-in).
+    crossfadeArmed = false;
+    if (crossfadeConfig.enabled && hasPremiumAccess('Basic') && gainNode && audioCtx) {
+      const fadeIn = Math.min(crossfadeConfig.duration, 1.2) || 0.4;
+      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + fadeIn);
+    } else if (gainNode) {
+      gainNode.gain.cancelScheduledValues(audioCtx?.currentTime || 0);
+      gainNode.gain.value = 1;
+    }
   }
 });
 
-audio.addEventListener('ended', () => {
+audio.addEventListener('ended', async () => {
   consecutiveErrors = 0;
+  crossfadeArmed = false;
+  if (gainNode) gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+  if (gainNode) gainNode.gain.value = 1;
 
   if (repeatMode === 'one') {
     audio.currentTime = 0;
@@ -474,6 +598,10 @@ audio.addEventListener('ended', () => {
     ? shuffleOrder.indexOf(index) === shuffleOrder.length - 1
     : index === queue.length - 1;
 
+  const myTokenAtAdTime = loadToken;
+  await notifySongCompleted().catch((err) => console.error('[Melody] Ad playback failed (non-fatal).', err));
+  if (myTokenAtAdTime !== loadToken) return; // a manual skip happened during the ad — don't double-advance
+
   if (atEnd && repeatMode === 'off') {
     // Stop cleanly at the end of the queue instead of wrapping forever.
     notify();
@@ -481,6 +609,26 @@ audio.addEventListener('ended', () => {
   }
 
   loadIndex(stepIndex(1), { autoplay: true });
+});
+
+// ---------- Crossfade (Basic+): fade-out near track end, fade-in on the next ----------
+// Deliberately a fade transition rather than true dual-source overlap —
+// see setCrossfadeConfig's doc comment for why, given the single <audio>
+// element guarantee this file otherwise relies on.
+audio.addEventListener('timeupdate', () => {
+  if (!crossfadeConfig.enabled || !hasPremiumAccess('Basic') || !gainNode || !audioCtx) return;
+  if (crossfadeArmed) return;
+  if (repeatMode === 'one') return; // don't fade a track that's about to instantly repeat itself
+
+  const dur = audio.duration;
+  if (!Number.isFinite(dur) || dur <= 0) return;
+  const remaining = dur - audio.currentTime;
+  if (remaining <= crossfadeConfig.duration && remaining > 0) {
+    crossfadeArmed = true;
+    gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + remaining);
+  }
 });
 
 audio.addEventListener('error', () => {

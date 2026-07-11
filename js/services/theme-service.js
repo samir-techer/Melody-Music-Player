@@ -11,9 +11,109 @@
  */
 
 import { getItem, setItem } from '../utils/storage.js';
+import { doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
+import { hasPremiumAccess, waitForPremiumReady } from './premium-service.js';
 
 const STORAGE_KEY = 'theme';
 const VALID_MODES = ['light', 'dark', 'system'];
+
+/* -------------------------------------------------------------------- */
+/*  Premium Themes                                                       */
+/* -------------------------------------------------------------------- */
+// Stored in Firestore as `selectedTheme` on the user's profile document
+// ("basic" | null) so it follows the account across devices. The
+// selection is NEVER erased when premium expires — only its *application*
+// stops — so it comes right back the moment the plan is renewed.
+
+export const PREMIUM_THEMES = {
+  basic: {
+    key: 'basic',
+    label: 'Basic Theme',
+    requiredPlan: 'Basic',
+    colors: {
+      primary: '#FF4FA3',
+      secondary: '#FF78B8',
+      accent: '#FFC0DA',
+      background: '#0D0D0D',
+      text: '#FFFFFF',
+    },
+  },
+};
+
+function applyPremiumThemeColors(themeKey) {
+  const theme = PREMIUM_THEMES[themeKey];
+  const root = document.documentElement;
+  if (!theme) {
+    root.removeAttribute('data-premium-theme');
+    root.style.removeProperty('--premium-primary');
+    root.style.removeProperty('--premium-secondary');
+    root.style.removeProperty('--premium-accent');
+    root.style.removeProperty('--premium-background');
+    root.style.removeProperty('--premium-text');
+    return;
+  }
+  root.setAttribute('data-premium-theme', theme.key);
+  root.style.setProperty('--premium-primary', theme.colors.primary);
+  root.style.setProperty('--premium-secondary', theme.colors.secondary);
+  root.style.setProperty('--premium-accent', theme.colors.accent);
+  root.style.setProperty('--premium-background', theme.colors.background);
+  root.style.setProperty('--premium-text', theme.colors.text);
+}
+
+/** Reads the saved selection straight from Firestore (source of truth). */
+export async function getSelectedPremiumTheme(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    return snap.exists() ? (snap.data().selectedTheme || null) : null;
+  } catch (err) {
+    console.error('[Melody] Premium theme read failed.', err);
+    return null;
+  }
+}
+
+/**
+ * Saves the user's Premium Theme choice. `themeKey` may be null to clear
+ * it (go back to Default). Uses a merge write so nothing else on the
+ * profile is ever touched.
+ */
+export async function setSelectedPremiumTheme(uid, themeKey) {
+  if (!uid) return;
+  await setDoc(doc(db, 'users', uid), { selectedTheme: themeKey || null }, { merge: true });
+  if (themeKey && hasPremiumAccess(PREMIUM_THEMES[themeKey]?.requiredPlan)) {
+    applyPremiumThemeColors(themeKey);
+  } else {
+    applyPremiumThemeColors(null);
+  }
+}
+
+/**
+ * Applies the saved Premium Theme, but ONLY once premium status has been
+ * verified via Firestore and only if the account currently qualifies for
+ * it. If premium has expired, the saved selection is left alone in
+ * Firestore (never erased) and the app simply falls back to the Default
+ * theme until the plan renews.
+ */
+export async function applyPremiumThemeIfAny(uid) {
+  if (!uid) {
+    applyPremiumThemeColors(null);
+    return;
+  }
+  await waitForPremiumReady();
+  const themeKey = await getSelectedPremiumTheme(uid);
+  const theme = themeKey ? PREMIUM_THEMES[themeKey] : null;
+  if (theme && hasPremiumAccess(theme.requiredPlan)) {
+    applyPremiumThemeColors(themeKey);
+  } else {
+    applyPremiumThemeColors(null); // expired or never selected — Default Theme, selection preserved server-side
+  }
+}
+
+/** Called whenever premium status changes (e.g. expiry sweep) to re-evaluate immediately. */
+export async function refreshPremiumThemeForUid(uid) {
+  return applyPremiumThemeIfAny(uid);
+}
 
 let mediaQuery = null;
 let systemListenerAttached = false;

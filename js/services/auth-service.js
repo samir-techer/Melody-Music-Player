@@ -278,6 +278,69 @@ export async function setUserNickname(uid, nickname) {
   }
 }
 
+/* -------------------------------------------------------------------- */
+/*  Nickname changes after onboarding (Basic+ only, capped 2/month)      */
+/* -------------------------------------------------------------------- */
+// Free accounts only ever set their nickname once, during onboarding.
+// Basic and above unlock changing it later from Settings, capped at 2
+// changes per rolling calendar month. No scheduled job resets the
+// counter — the reset only happens lazily, the next time this function
+// runs, by comparing today's "YYYY-MM" against the stored reset date.
+
+const NICKNAME_CHANGES_PER_MONTH = 2;
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Returns { allowed, remaining, resetsNextMonth } WITHOUT writing
+ * anything — used by Settings to render "1 of 2 changes left this month"
+ * before the user commits to a change.
+ */
+export async function getNicknameChangeStatus(uid) {
+  const profile = await getUserProfile(uid);
+  const monthKey = currentMonthKey();
+  const storedMonth = profile?.nicknameResetDate || null;
+  const used = storedMonth === monthKey ? (profile?.nicknameChanges || 0) : 0;
+  return {
+    used,
+    remaining: Math.max(0, NICKNAME_CHANGES_PER_MONTH - used),
+    limit: NICKNAME_CHANGES_PER_MONTH,
+  };
+}
+
+/**
+ * Changes the nickname for a Basic+ account, enforcing the 2/month cap.
+ * Throws a plain Error (not a Firebase error) with a friendly message if
+ * the cap has been hit — callers should show it directly, no need to run
+ * it through friendlyAuthError().
+ */
+export async function changeNicknameWithLimit(uid, nickname) {
+  const ref = doc(db, USERS_COLLECTION, uid);
+  const snap = await getDoc(ref);
+  const profile = snap.exists() ? snap.data() : {};
+
+  const monthKey = currentMonthKey();
+  const sameMonth = profile.nicknameResetDate === monthKey;
+  const usedThisMonth = sameMonth ? (profile.nicknameChanges || 0) : 0;
+
+  if (usedThisMonth >= NICKNAME_CHANGES_PER_MONTH) {
+    throw new Error(`You\u2019ve used all ${NICKNAME_CHANGES_PER_MONTH} nickname changes for this month. Try again next month.`);
+  }
+
+  await setDoc(ref, {
+    nickname,
+    nicknameChanges: usedThisMonth + 1,
+    nicknameResetDate: monthKey,
+  }, { merge: true });
+
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+    await updateProfile(auth.currentUser, { displayName: nickname }).catch(() => {});
+  }
+}
+
 export async function incrementListeningStats(uid, { songsDelta = 0, secondsDelta = 0 } = {}) {
   if (!uid) return;
   const ref = doc(db, USERS_COLLECTION, uid);
