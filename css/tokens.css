@@ -116,3 +116,34 @@
 [data-theme="dark"] .btn-primary {
   color: var(--color-bg);
 }
+
+/* ==========================================================================
+   PREMIUM THEME — "Basic Theme"
+   Applied via [data-premium-theme="basic"] on <html>, set by
+   theme-service.js only after premium status (Basic and above) has been
+   verified via Firestore. Overrides the same color tokens dark mode uses,
+   so every existing component reskins automatically with no per-component
+   changes needed. --premium-* custom properties (also set by
+   theme-service.js) are additionally exposed for anything that wants the
+   raw brand colors directly (e.g. the Premium Themes picker swatches).
+   ========================================================================== */
+[data-premium-theme="basic"] {
+  --color-bg:             var(--premium-background, #0D0D0D);
+  --color-bg-secondary:   #1A1A1A;
+  --color-card:           #171012;
+  --color-text-primary:   var(--premium-text, #FFFFFF);
+  --color-text-secondary: #D9A9C2;
+  --color-accent:         var(--premium-primary, #FF4FA3);
+
+  --color-accent-soft:    rgba(255, 79, 163, 0.14);
+  --color-accent-softer:  rgba(255, 79, 163, 0.06);
+  --color-divider:        rgba(255, 192, 218, 0.14);
+  --color-overlay:        rgba(0, 0, 0, 0.6);
+  --color-heart:          var(--premium-secondary, #FF78B8);
+
+  color-scheme: dark;
+}
+
+[data-premium-theme="basic"] .btn-primary {
+  color: #0D0D0D;
+}
