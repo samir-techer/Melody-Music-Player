@@ -23,15 +23,35 @@
  *    log it, never crash, never block music.
  */
 
+import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
 import { hasPremiumAccess, subscribePremium } from './premium-service.js';
 
 const MANIFEST_URL = './assets/audio/ad/manifest.json';
 const AD_DIR = './assets/audio/ad/';
-const SONGS_BETWEEN_ADS = 6;
+const DEFAULT_SONGS_BETWEEN_ADS = 6;
 const SUPPORTED_EXTENSIONS = ['.mp3', '.wav', '.ogg'];
+
+// Admin-controlled global config (Admin Dashboard -> Advertisement
+// Manager). Live via onSnapshot so a change takes effect immediately,
+// same session, no reload needed — same "never trust a cached value"
+// principle as premium-service.js, just for a different document.
+let adConfig = { adsEnabled: true, songsBetweenAds: DEFAULT_SONGS_BETWEEN_ADS };
+onSnapshot(doc(db, 'app_config', 'ads'), (snap) => {
+  if (snap.exists()) {
+    const data = snap.data();
+    adConfig = {
+      adsEnabled: data.adsEnabled !== false,
+      songsBetweenAds: Number.isFinite(data.songsBetweenAds) ? data.songsBetweenAds : DEFAULT_SONGS_BETWEEN_ADS,
+    };
+  }
+}, (err) => {
+  console.warn('[Melody] AdManager: ad config listener failed — using defaults (ads on, every 6 songs).', err);
+});
 
 let adFiles = [];          // full URLs, built from the manifest
 let initPromise = null;    // in-flight/completed init, so concurrent callers share one fetch
+let premiumWatchStarted = false; // guards against re-subscribing on a manual reloadAdManifest()
 let lastPlayedUrl = null;
 let completedSongs = 0;
 
@@ -83,11 +103,14 @@ export function initAdManager() {
 
   // If the account upgrades while an ad happens to be mid-playback, stop
   // it immediately rather than let a Basic+ account finish hearing it.
-  subscribePremium((state) => {
-    if (state.ready && hasPremiumAccess('Basic') && isAdPlaying) {
-      stopAdImmediately();
-    }
-  });
+  if (!premiumWatchStarted) {
+    premiumWatchStarted = true;
+    subscribePremium((state) => {
+      if (state.ready && hasPremiumAccess('Basic') && isAdPlaying) {
+        stopAdImmediately();
+      }
+    });
+  }
 
   return initPromise;
 }
@@ -156,9 +179,10 @@ function playAd(url) {
 export async function notifySongCompleted() {
   try {
     if (hasPremiumAccess('Basic')) return; // Basic/Plus/Elite — never counted, never scheduled
+    if (!adConfig.adsEnabled) return; // admin kill-switch — no ads for anyone right now
 
     completedSongs += 1;
-    if (completedSongs < SONGS_BETWEEN_ADS) return;
+    if (completedSongs < adConfig.songsBetweenAds) return;
 
     completedSongs = 0; // reset regardless of whether a clip actually played
     await initAdManager();
@@ -175,4 +199,35 @@ export async function notifySongCompleted() {
 
 export function isAdCurrentlyPlaying() {
   return isAdPlaying;
+}
+
+/* -------------------------------------------------------------------- */
+/*  Admin Dashboard hooks — Advertisement Manager section                */
+/* -------------------------------------------------------------------- */
+
+/** Current list of ad clip URLs (for the dashboard's file count/preview list). */
+export function getAdFiles() {
+  return [...adFiles];
+}
+
+export function getAdConfigSnapshot() {
+  return { ...adConfig };
+}
+
+/** Re-fetches manifest.json from disk right now, bypassing the cached promise — "Reload Advertisement Folder". */
+export async function reloadAdManifest() {
+  initPromise = null;
+  return initAdManager();
+}
+
+/**
+ * "Test Advertisement" / "Preview Advertisement" — plays a clip straight
+ * from the dashboard, completely independent of notifySongCompleted's
+ * counting/gating logic (so testing doesn't consume the real counter or
+ * get blocked by an admin's own Basic+ plan).
+ */
+export function previewAdClip(url) {
+  const player = new Audio(url);
+  player.play().catch((err) => console.error('[Melody] Admin: ad preview failed to play.', err));
+  return player; // caller can .pause() it to stop the preview early
 }
