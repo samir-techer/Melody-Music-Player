@@ -29,3 +29,28 @@
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+/* ---------- Firebase config diagnostic banner ---------- */
+/* Shown only for project-configuration problems (suspended/restricted API
+   key, unauthorized domain, Firestore not provisioned) — the kind of
+   issue a "check your connection" toast would misleadingly blame on the
+   user's network. See firebase-config.js. Deliberately styled distinctly
+   from the toast so it reads as "something's wrong with the app setup",
+   not "something's wrong on your end". */
+#firebase-diagnostic-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: #B3261E;
+  color: #FFFFFF;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.4;
+}
+#firebase-diagnostic-banner[hidden] {
+  display: none;
+}
