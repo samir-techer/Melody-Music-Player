@@ -28,6 +28,7 @@ import {
 
 import { auth, db, isConfigProblem, reportConfigProblem } from './firebase-config.js';
 import { clearUserCache } from '../utils/storage.js';
+import { hasPremiumAccess } from './premium-service.js';
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -300,6 +301,9 @@ function currentMonthKey() {
  * before the user commits to a change.
  */
 export async function getNicknameChangeStatus(uid) {
+  if (hasPremiumAccess('Plus')) {
+    return { used: 0, remaining: Infinity, limit: Infinity };
+  }
   const profile = await getUserProfile(uid);
   const monthKey = currentMonthKey();
   const storedMonth = profile?.nicknameResetDate || null;
@@ -319,6 +323,17 @@ export async function getNicknameChangeStatus(uid) {
  */
 export async function changeNicknameWithLimit(uid, nickname) {
   const ref = doc(db, USERS_COLLECTION, uid);
+
+  if (hasPremiumAccess('Plus')) {
+    // Unlimited — still bump lastLogin-style bookkeeping fields for
+    // consistency, but never touch the counter/cap at all.
+    await setDoc(ref, { nickname }, { merge: true });
+    if (auth.currentUser && auth.currentUser.uid === uid) {
+      await updateProfile(auth.currentUser, { displayName: nickname }).catch(() => {});
+    }
+    return;
+  }
+
   const snap = await getDoc(ref);
   const profile = snap.exists() ? snap.data() : {};
 

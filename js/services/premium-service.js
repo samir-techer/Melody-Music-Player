@@ -154,7 +154,7 @@ export function getPremiumExpiry() {
 }
 
 export function isAdmin() {
-  return raw.role === 'admin';
+  return (raw.role || '').toLowerCase() === 'admin';
 }
 
 export function getPremiumState() {

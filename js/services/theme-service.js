@@ -29,14 +29,31 @@ const VALID_MODES = ['light', 'dark', 'system'];
 export const PREMIUM_THEMES = {
   basic: {
     key: 'basic',
-    label: 'Basic Theme',
+    label: 'Crimson Velvet',
     requiredPlan: 'Basic',
     colors: {
-      primary: '#FF4FA3',
-      secondary: '#FF78B8',
-      accent: '#FFC0DA',
+      primary: '#59171B',
+      secondary: '#7A2328',
+      accent: '#FED7B8',
       background: '#0D0D0D',
+      card: '#1A1313',
       text: '#FFFFFF',
+      mutedText: '#C9C4C4', // "Light Gray" per spec
+    },
+  },
+  plus: {
+    key: 'plus',
+    label: 'Royal Navy',
+    requiredPlan: 'Plus',
+    colors: {
+      primary: '#002147',
+      secondary: '#08182F',
+      accent: '#D2B48C',
+      highlight: '#F8F0E5',
+      background: '#091321',
+      card: 'rgba(210, 180, 140, 0.08)', // subtle blue/tan glassmorphism, not a flat fill
+      text: '#FFFFFF',
+      mutedText: '#B7C2D6',
     },
   },
 };
@@ -46,18 +63,19 @@ function applyPremiumThemeColors(themeKey) {
   const root = document.documentElement;
   if (!theme) {
     root.removeAttribute('data-premium-theme');
-    root.style.removeProperty('--premium-primary');
-    root.style.removeProperty('--premium-secondary');
-    root.style.removeProperty('--premium-accent');
-    root.style.removeProperty('--premium-background');
-    root.style.removeProperty('--premium-text');
+    ['primary', 'secondary', 'accent', 'highlight', 'background', 'card', 'text', 'muted-text'].forEach((prop) => {
+      root.style.removeProperty(`--premium-${prop}`);
+    });
     return;
   }
   root.setAttribute('data-premium-theme', theme.key);
   root.style.setProperty('--premium-primary', theme.colors.primary);
   root.style.setProperty('--premium-secondary', theme.colors.secondary);
   root.style.setProperty('--premium-accent', theme.colors.accent);
+  root.style.setProperty('--premium-highlight', theme.colors.highlight || theme.colors.accent);
   root.style.setProperty('--premium-background', theme.colors.background);
+  root.style.setProperty('--premium-card', theme.colors.card || theme.colors.background);
+  root.style.setProperty('--premium-muted-text', theme.colors.mutedText || theme.colors.text);
   root.style.setProperty('--premium-text', theme.colors.text);
 }
 

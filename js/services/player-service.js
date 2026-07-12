@@ -248,6 +248,18 @@ export function getState() {
  */
 export async function loadQueue(songs, startIndex = 0) {
   if (!Array.isArray(songs) || songs.length === 0) return;
+
+  const limit = queueLimitForCurrentPlan();
+  if (songs.length > limit) {
+    // Keep a `limit`-sized window centered on the requested start index
+    // rather than just truncating from 0, so "play this song" still
+    // plays THIS song even deep in a long list.
+    const windowStart = Math.max(0, Math.min(startIndex - Math.floor(limit / 2), songs.length - limit));
+    songs = songs.slice(windowStart, windowStart + limit);
+    startIndex -= windowStart;
+    showToast(`Free and Basic queues are capped at ${QUEUE_LIMIT_FREE_BASIC} songs — upgrade to Plus for an unlimited queue.`);
+  }
+
   queue = songs.slice();
   consecutiveErrors = 0;
   rebuildShuffleOrder(startIndex);
@@ -495,9 +507,22 @@ export function isShuffleOn() {
 
 // ---------- Queue management ----------
 
+// Premium — Unlimited Queue (Plus+). Free/Basic get a generous but real
+// cap; Plus and above have none. Chosen high enough that it never bites
+// normal listening, but it's a genuine limit, not just a marketing line.
+const QUEUE_LIMIT_FREE_BASIC = 200;
+
+function queueLimitForCurrentPlan() {
+  return hasPremiumAccess('Plus') ? Infinity : QUEUE_LIMIT_FREE_BASIC;
+}
+
 /** Append a song to the end of the queue without interrupting playback. */
 export function addToQueue(song) {
   if (!song) return;
+  if (queue.length >= queueLimitForCurrentPlan()) {
+    showToast(`Free and Basic queues are capped at ${QUEUE_LIMIT_FREE_BASIC} songs — upgrade to Plus for an unlimited queue.`);
+    return;
+  }
   queue.push(song);
   if (shuffle) shuffleOrder.push(queue.length - 1);
   notify();
@@ -506,6 +531,10 @@ export function addToQueue(song) {
 /** Insert a song to play immediately after the current one. */
 export function playNext(song) {
   if (!song) return;
+  if (queue.length >= queueLimitForCurrentPlan()) {
+    showToast(`Free and Basic queues are capped at ${QUEUE_LIMIT_FREE_BASIC} songs — upgrade to Plus for an unlimited queue.`);
+    return;
+  }
   const insertAt = index >= 0 ? index + 1 : queue.length;
   queue.splice(insertAt, 0, song);
   rebuildShuffleOrder(index);
