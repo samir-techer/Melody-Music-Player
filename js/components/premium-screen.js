@@ -17,6 +17,7 @@
  */
 
 import { navigate } from '../utils/router.js';
+import { getPremiumState, subscribePremium, PLAN_ORDER } from '../services/premium-service.js';
 
 const CURRENCY = 'रु';
 const FIRST_PURCHASE_OFF = 20; // % — stacks with yearly
@@ -30,7 +31,6 @@ const PLANS = [
     theme: 'free',
     price: 0,
     yearlyOff: 0,
-    isCurrent: true,
     cta: 'Current Plan',
     features: [
       'Offline Playback',
@@ -50,7 +50,7 @@ const PLANS = [
     icon: '📀',
     name: 'Basic',
     badge: 'For Casual Listeners',
-    theme: 'pink',
+    theme: 'crimson',
     price: 99,
     yearlyOff: 15,
     yearlyPrice: 1010, // रु99 × 12 = रु1,188 → 15% OFF = रु1,010
@@ -70,7 +70,7 @@ const PLANS = [
     icon: '⭐',
     name: 'Plus',
     badge: 'Recommended',
-    theme: 'purple',
+    theme: 'navy',
     price: 249,
     yearlyOff: 20,
     yearlyPrice: 2390, // रु249 × 12 = रु2,988 → 20% OFF = रु2,390
@@ -78,8 +78,14 @@ const PLANS = [
     cta: 'Upgrade to Plus',
     features: [
       'Everything in Basic',
-      'Priority Support',
+      'Royal Navy Theme',
       'Exclusive Plus Badge',
+      'Multi-Device Sync',
+      'Unlimited Queue Length',
+      'Unlimited Nickname Changes',
+      'Higher Audio Quality',
+      'Experimental Features',
+      'Priority Support',
     ],
   },
   {
@@ -114,6 +120,11 @@ const COMPARE_ROWS = [
   { label: 'Advanced Equalizer Presets', tiers: ['basic', 'plus', 'elite'] },
   { label: 'Crossfade', tiers: ['basic', 'plus', 'elite'] },
   { label: 'Cloud Backup & Sync', tiers: ['basic', 'plus', 'elite'] },
+  { label: 'Exclusive Plus/Elite Badge', tiers: ['plus', 'elite'] },
+  { label: 'Unlimited Queue Length', tiers: ['plus', 'elite'] },
+  { label: 'Unlimited Nickname Changes', tiers: ['plus', 'elite'] },
+  { label: 'Higher Audio Quality', tiers: ['plus', 'elite'] },
+  { label: 'Experimental Features', tiers: ['plus', 'elite'] },
   { label: 'Priority Support', tiers: ['plus', 'elite'] },
   { label: 'Unlimited Cloud Storage', tiers: ['elite'] },
   { label: 'Early Access Features', tiers: ['elite'] },
@@ -162,6 +173,8 @@ export async function renderPremiumScreen() {
       <p>Unlock more features and support Melody's development.</p>
     </header>
 
+    <div id="premium-status-banner-slot"></div>
+
     <div class="welcome-banner premium-fade">
       <div class="emoji">🎉</div>
       <div class="copy">
@@ -180,8 +193,8 @@ export async function renderPremiumScreen() {
             <tr>
               <th>Feature</th>
               <th>Free</th>
-              <th class="col-pink">Basic</th>
-              <th class="col-purple">Plus</th>
+              <th class="col-crimson">Basic</th>
+              <th class="col-navy">Plus</th>
               <th class="col-gold">Elite</th>
             </tr>
           </thead>
@@ -198,9 +211,24 @@ export async function renderPremiumScreen() {
     <p class="premium-footnote premium-fade">Prices and features may change before the official release.</p>
   `;
 
-  // ---------- Render plan cards ----------
+  // ---------- Premium Status Banner + plan cards: both driven by the
+  // SAME live, Firestore-verified premium state, re-rendered together
+  // any time that state changes (renewal, expiry, an admin grant) — never
+  // a page reload required. ----------
+  const bannerSlot = el.querySelector('#premium-status-banner-slot');
   const plansGrid = el.querySelector('#plans-grid');
-  plansGrid.innerHTML = PLANS.map((plan) => renderPlanCard(plan, planBilling[plan.key] || 'monthly')).join('');
+
+  function renderDynamicParts() {
+    const state = getPremiumState();
+    bannerSlot.innerHTML = renderStatusBanner(state);
+    plansGrid.innerHTML = PLANS.map((plan) => renderPlanCard(plan, planBilling[plan.key] || 'monthly', state)).join('');
+  }
+  renderDynamicParts();
+
+  const unsubscribePremium = subscribePremium((state) => {
+    if (!state.ready) return;
+    renderDynamicParts();
+  });
 
   // ---------- Render comparison table ----------
   const compareBody = el.querySelector('#compare-body');
@@ -307,7 +335,10 @@ export async function renderPremiumScreen() {
   }, { threshold: 0.15 });
   el.querySelectorAll('.premium-fade').forEach((node) => observer.observe(node));
 
-  el._onLeave = () => observer.disconnect();
+  el._onLeave = () => {
+    observer.disconnect();
+    unsubscribePremium();
+  };
 
   return el;
 }
@@ -372,13 +403,62 @@ function renderPriceBlock(plan, billing) {
   `;
 }
 
-function renderPlanCard(plan, billing) {
+const PLAN_DISPLAY = {
+  Free: { icon: '🆓', label: 'Free', cssKey: 'free' },
+  Basic: { icon: '💿', label: 'Basic Member', cssKey: 'basic' },
+  Plus: { icon: '⭐', label: 'Plus Member', cssKey: 'plus' },
+  Elite: { icon: '👑', label: 'Elite Member', cssKey: 'elite' },
+};
+
+/**
+ * Renders one plan card, comparing this card's plan against the
+ * account's live EFFECTIVE plan (expiry already applied upstream by
+ * premium-service — an expired Plus account is treated as Free here too,
+ * exactly like everywhere else in the app):
+ *  - same plan as the account -> "Current Plan" (disabled, styled distinctly)
+ *  - ranked below the account's plan -> "Included in <Plan>" (disabled)
+ *  - ranked above the account's plan -> normal, enabled "Upgrade to X"
+ */
+function renderPlanCard(plan, billing, state) {
   const isFree = plan.price === 0;
+  const effectivePlan = state.effectivePlan;
+  const planRank = PLAN_ORDER.indexOf(plan.name);
+  const currentRank = PLAN_ORDER.indexOf(effectivePlan);
+
+  let ctaLabel = plan.cta;
+  let ctaClass = '';
+  let disabled = false;
+  let includedTag = '';
+
+  if (plan.name === effectivePlan) {
+    disabled = true;
+    if (plan.name === 'Elite') {
+      ctaLabel = '👑 Current Plan';
+      ctaClass = 'is-current-elite';
+    } else if (plan.name === 'Free') {
+      ctaLabel = 'Current Plan';
+      ctaClass = 'is-current-plan';
+    } else {
+      ctaLabel = '✓ Current Plan';
+      ctaClass = 'is-current-plan';
+    }
+  } else if (!isFree && planRank < currentRank) {
+    // A paid plan ranked below the account's actual plan — already included.
+    disabled = true;
+    ctaClass = 'is-included';
+    ctaLabel = `Included in ${escapeHtml(effectivePlan)}`;
+    includedTag = '<span class="plan-included-tag">Included</span>';
+  } else if (isFree && currentRank > 0) {
+    // Free card, but the account already has a paid plan — nothing to buy here.
+    disabled = true;
+    ctaClass = 'is-included';
+    ctaLabel = 'Included';
+  }
 
   return `
     <div class="plan-card theme-${plan.theme} ${plan.highlight ? 'is-highlight' : ''}">
       <div class="plan-card-top">
-        <span class="plan-name">${plan.icon} ${plan.name}</span>
+        <span class="plan-name">${plan.icon} ${plan.name}${includedTag}</span>
         <span class="plan-badge">${plan.badge}</span>
       </div>
 
@@ -398,9 +478,60 @@ function renderPlanCard(plan, billing) {
         ${plan.features.map((f) => `<li><span class="tick">✓</span>${f}</li>`).join('')}
       </ul>
 
-      <button type="button" class="plan-cta" ${plan.isCurrent ? 'disabled' : ''}>${plan.cta}</button>
+      <button type="button" class="plan-cta ${ctaClass}" data-plan-key="${plan.key}" ${disabled ? 'disabled' : ''}>${ctaLabel}</button>
     </div>
   `;
+}
+
+function formatExpiry(expiry) {
+  if (!expiry) return null;
+  const date = typeof expiry?.toDate === 'function' ? expiry.toDate() : new Date(expiry);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/**
+ * Reads ONLY premiumPlan/premiumExpiry (via premium-service, which itself
+ * reads live Firestore) — never a cached/local flag. isExpired means the
+ * raw plan is still e.g. "Plus" in Firestore but the expiry has passed;
+ * per spec this is treated as Free everywhere EXCEPT this specific
+ * "expired" messaging, and Firestore itself is never auto-modified.
+ */
+function renderStatusBanner(state) {
+  const { rawPlan, effectivePlan, expiry, isExpired } = state;
+
+  if (isExpired) {
+    const display = PLAN_DISPLAY[rawPlan] || PLAN_DISPLAY.Free;
+    return `
+      <div class="premium-status-banner is-expired">
+        <div>
+          <div class="status-plan">${display.icon} ${escapeHtml(rawPlan)}</div>
+          <div class="status-meta">Status: Expired</div>
+        </div>
+        <span class="status-badge">Expired</span>
+        <p class="status-expired-note">Your Premium subscription has expired. Renew your subscription to continue enjoying Premium features.</p>
+      </div>`;
+  }
+
+  const display = PLAN_DISPLAY[effectivePlan] || PLAN_DISPLAY.Free;
+  const expiryLabel = formatExpiry(expiry);
+
+  return `
+    <div class="premium-status-banner plan-${display.cssKey}">
+      <div>
+        <div class="status-plan">${display.icon} ${escapeHtml(effectivePlan === 'Free' ? 'Free' : display.label)}</div>
+        <div class="status-meta">
+          ${effectivePlan === 'Free' ? 'No active subscription' : `Status: Active${expiryLabel ? ` · Expires: ${expiryLabel}` : ' · No expiry'}`}
+        </div>
+      </div>
+      <span class="status-badge">${effectivePlan === 'Free' ? 'Free' : 'Active'}</span>
+    </div>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
 }
 
 function openComingSoonModal(screenEl) {

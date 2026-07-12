@@ -28,7 +28,7 @@ export async function renderPlayerScreen() {
       </div>
     </div>
 
-    <div class="ad-overlay" id="ad-overlay" hidden>
+    <div class="ad-overlay" id="ad-overlay">
       <span class="ad-badge">Advertisement</span>
       <div class="ad-progress-track"><div class="ad-progress-fill" id="ad-progress-fill"></div></div>
       <span class="ad-remaining" id="ad-remaining">0:00</span>
@@ -122,7 +122,7 @@ export async function renderPlayerScreen() {
   // ---------- Ad overlay: badge, progress, remaining time; disables
   // Next/Previous/Seek/Shuffle/Repeat/Queue for the duration of the ad. ----------
   const unsubscribeAd = subscribeAd((adState) => {
-    adOverlay.hidden = !adState.isAdPlaying;
+    adOverlay.classList.toggle('active', adState.isAdPlaying);
     [shuffleBtn, previousBtn, nextBtn, repeatBtn, seekBar, queueToggleBtn].forEach((ctrl) => {
       ctrl.disabled = adState.isAdPlaying;
     });

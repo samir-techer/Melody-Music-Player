@@ -15,6 +15,7 @@ import { getArtworkUrl } from '../services/artwork-service.js';
 import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
 import { getCurrentUser } from '../services/auth-service.js';
+import { getEffectivePlan } from '../services/premium-service.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums' },
@@ -36,6 +37,10 @@ export async function renderHomeScreen() {
 
   const timeLabel = getTimeOfDayLabel();
   const emoji = getTimeOfDayEmoji();
+  const effectivePlan = getEffectivePlan();
+  const badgeHtml = effectivePlan !== 'Free'
+    ? ` <span class="premium-badge plan-${effectivePlan.toLowerCase()}">⭐ ${escapeHtml(effectivePlan)}</span>`
+    : '';
 
   let currentThemeMode = 'system';
   try {
@@ -59,7 +64,7 @@ export async function renderHomeScreen() {
     <header class="home-header">
       <div class="home-header-row">
         <div>
-          <h1>Good ${timeLabel}, ${escapeHtml(nickname)} ${emoji}</h1>
+          <h1>Good ${timeLabel}, ${escapeHtml(nickname)} ${emoji}${badgeHtml}</h1>
           <p class="subline">Let's find your next favorite song.</p>
         </div>
         <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle appearance">

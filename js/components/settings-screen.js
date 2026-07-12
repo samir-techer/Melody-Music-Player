@@ -45,6 +45,20 @@ const THEME_OPTIONS = [
   { key: 'dark', label: 'Dark' },
 ];
 
+// Premium — Higher Audio Quality (Plus+). Architecture placeholder per
+// spec ("prepare architecture even if playback isn't implemented") — this
+// only saves a preference to Firestore; no actual bitrate/DSP change is
+// wired into playback yet, since Melody's songs are user-imported local
+// files at whatever quality they already are. Lossless specifically is
+// flagged as a future placeholder — selectable, but disabled/no-op until
+// there's an actual lossless pipeline to back it.
+const AUDIO_QUALITY_OPTIONS = [
+  { key: 'standard', label: 'Standard' },
+  { key: 'high', label: 'High' },
+  { key: 'veryHigh', label: 'Very High' },
+  { key: 'lossless', label: 'Lossless (Coming Soon)', futurePlaceholder: true },
+];
+
 export async function renderSettingsScreen() {
   const currentMode = await getThemeMode();
   const songCount = await getSongCount().catch(() => 0);
@@ -58,12 +72,22 @@ export async function renderSettingsScreen() {
   const isVerified = !isPasswordAccount || authUser?.emailVerified;
 
   const isBasicPlus = hasPremiumAccess('Basic');
+  const isPlusPlus = hasPremiumAccess('Plus');
   const effectivePlan = getEffectivePlan();
-  const isAdminUser = isAdmin();
+  // Same source of truth as the "Role" row displayed just below — a
+  // fresh Firestore read via getUserProfile(), not premium-service's
+  // separately-timed onSnapshot cache. That cache is still used (via
+  // isAdmin()) purely as the trigger to re-render this screen when the
+  // role changes elsewhere (see subscribePremium below), but the actual
+  // show/hide decision for the button always matches what "Role" shows.
+  // Case-insensitive because Firestore data can end up as "Admin" or
+  // "ADMIN" (e.g. a manual console edit) just as easily as "admin".
+  const isAdminUser = (profile?.role || '').toLowerCase() === 'admin';
   const selectedPremiumTheme = authUser ? await getSelectedPremiumTheme(authUser.uid) : null;
   const crossfade = getCrossfadeConfig();
   const eqPreset = getEqualizerPreset();
   const nicknameStatus = authUser ? await getNicknameChangeStatus(authUser.uid) : { used: 0, remaining: 0, limit: 2 };
+  const audioQuality = profile?.audioQuality || 'standard';
 
   const el = document.createElement('div');
   el.className = 'screen settings-screen has-shell';
@@ -82,7 +106,7 @@ export async function renderSettingsScreen() {
         <div class="settings-row">
           <span>Plan</span>
           <span class="settings-value">
-            ${effectivePlan !== 'Free' ? `<span class="premium-badge">⭐ ${escapeHtml(effectivePlan)}</span>` : escapeHtml(profile?.premiumPlan || 'Free')}
+            ${effectivePlan !== 'Free' ? `<span class="premium-badge plan-${effectivePlan.toLowerCase()}">⭐ ${escapeHtml(effectivePlan)}</span>` : escapeHtml(profile?.premiumPlan || 'Free')}
           </span>
         </div>
         <div class="settings-row">
@@ -99,7 +123,7 @@ export async function renderSettingsScreen() {
           <div class="settings-row-label">
             <span>Nickname ${isBasicPlus ? '' : '<span class="lock-icon">🔒</span>'}</span>
             <p class="settings-hint-inline">
-              ${escapeHtml(profile?.nickname || '—')}${isBasicPlus ? ` · ${nicknameStatus.remaining} of ${nicknameStatus.limit} changes left this month` : ' · Upgrade to Basic to change your nickname later'}
+              ${escapeHtml(profile?.nickname || '—')}${isPlusPlus ? ' · Unlimited changes (Plus)' : isBasicPlus ? ` · ${nicknameStatus.remaining} of ${nicknameStatus.limit} changes left this month` : ' · Upgrade to Basic to change your nickname later'}
             </p>
           </div>
           <button class="btn-secondary" id="nickname-change-btn" type="button" style="width:auto;" ${isBasicPlus && nicknameStatus.remaining > 0 ? '' : 'disabled'}>Change</button>
@@ -198,7 +222,45 @@ export async function renderSettingsScreen() {
           return `<button type="button" class="eq-preset-chip ${eqPreset === key ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-eq-key="${key}" data-required-plan="${preset.requiredPlan}">${unlocked ? '' : '🔒 '}${escapeHtml(preset.label)}</button>`;
         }).join('')}
       </div>
+
+      <div class="section-heading" style="margin-top: var(--space-4);"><h3>Audio Quality</h3></div>
+      <div class="eq-preset-grid" id="audio-quality-grid">
+        ${AUDIO_QUALITY_OPTIONS.map((opt) => {
+          const unlocked = hasPremiumAccess('Plus') && !opt.futurePlaceholder;
+          const isCurrent = audioQuality === opt.key;
+          return `<button type="button" class="eq-preset-chip ${isCurrent ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-quality-key="${opt.key}" ${opt.futurePlaceholder ? 'disabled title="Coming soon"' : ''}>${unlocked ? '' : '🔒 '}${escapeHtml(opt.label)}</button>`;
+        }).join('')}
+      </div>
+      <p class="admin-hint" style="color:var(--color-text-secondary);">${hasPremiumAccess('Plus') ? 'Lossless is reserved for a future update — selecting it just saves your preference for when it ships.' : 'Available with Plus.'}</p>
     </section>
+
+    ${hasPremiumAccess('Plus') ? `
+    <section class="section">
+      <div class="section-heading"><h2>Experimental Features</h2></div>
+      <div class="settings-list">
+        <div class="settings-row-toggle">
+          <div class="settings-row-label">
+            <span>Early Access Previews</span>
+            <p class="settings-hint-inline">Opt in to try in-progress features before they're finished. Nothing is enabled yet — check back soon.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-experimental" disabled />
+            <span class="toggle-track"><span class="toggle-thumb-switch"></span></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><h2>Support</h2></div>
+      <div class="settings-list">
+        <div class="settings-row">
+          <span>🛠 Priority Support</span>
+          <span class="settings-value">Included in ${escapeHtml(effectivePlan)}</span>
+        </div>
+      </div>
+      <button class="btn-secondary" id="priority-support-btn" type="button">Contact Priority Support</button>
+    </section>` : ''}
 
     <section class="section">
       <div class="section-heading"><h2>Your Library</h2></div>
@@ -482,7 +544,8 @@ export async function renderSettingsScreen() {
   /* ---------------------------------------------------------------- */
   /*  Premium: Equalizer                                                */
   /* ---------------------------------------------------------------- */
-  el.querySelector('#eq-preset-grid').addEventListener('click', (e) => {
+  const eqPresetGrid = el.querySelector('#eq-preset-grid');
+  eqPresetGrid.addEventListener('click', (e) => {
     const chip = e.target.closest('.eq-preset-chip');
     if (!chip) return;
     const key = chip.dataset.eqKey;
@@ -493,7 +556,31 @@ export async function renderSettingsScreen() {
       return;
     }
     setEqualizerPreset(key);
-    el.querySelectorAll('.eq-preset-chip').forEach((c) => c.classList.toggle('active', c === chip));
+    eqPresetGrid.querySelectorAll('.eq-preset-chip').forEach((c) => c.classList.toggle('active', c === chip));
+  });
+
+  /* ---------------------------------------------------------------- */
+  /*  Premium: Audio Quality (Plus+, placeholder architecture)          */
+  /* ---------------------------------------------------------------- */
+  const audioQualityGrid = el.querySelector('#audio-quality-grid');
+  audioQualityGrid.addEventListener('click', async (e) => {
+    const chip = e.target.closest('.eq-preset-chip');
+    if (!chip || chip.disabled) return;
+    const key = chip.dataset.qualityKey;
+
+    if (!hasPremiumAccess('Plus')) {
+      showUpgradeDialog('Upgrade to Plus to unlock Higher Audio Quality.', 'Plus');
+      return;
+    }
+    await setDoc(doc(db, 'users', authUser.uid), { audioQuality: key }, { merge: true });
+    audioQualityGrid.querySelectorAll('.eq-preset-chip').forEach((c) => c.classList.toggle('active', c === chip));
+    const { showToast } = await import('../utils/toast.js');
+    showToast(key === 'lossless' ? 'Saved — Lossless will activate automatically once it ships.' : 'Audio quality preference saved.');
+  });
+
+  el.querySelector('#priority-support-btn')?.addEventListener('click', async () => {
+    const { showToast } = await import('../utils/toast.js');
+    showToast('Priority Support isn\u2019t wired up to a live queue yet — email support@melody.app and mention your Plus/Elite plan.');
   });
 
   /* ---------------------------------------------------------------- */
