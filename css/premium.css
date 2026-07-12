@@ -4,7 +4,7 @@
    surface never bleeds into (or gets overridden by) the app's light/dark
    token theme. Spacing, radius, duration and easing still come from
    tokens.css — only color is redefined here, as the brief requires an
-   exact black/pink/purple/gold palette regardless of system theme.
+   exact black/crimson/navy/gold palette regardless of system theme.
    ========================================================================== */
 
 .premium-screen {
@@ -17,9 +17,10 @@
   --p-text-faint:rgba(255, 255, 255, 0.38);
   --p-divider:   rgba(255, 255, 255, 0.08);
 
-  --p-pink:   #EC4899;
-  --p-purple: #8B5CF6;
-  --p-gold:   #FBBF24;
+  --p-crimson: #A8323C; /* Basic — "Crimson Velvet" marketing accent (brighter than the in-app #59171B so it still pops on this pure-black page) */
+  --p-navy:    #2E5C94; /* Plus — "Royal Navy" marketing accent */
+  --p-tan:     #D2B48C; /* Plus — secondary accent, matches the in-app theme's tan */
+  --p-gold:    #FBBF24;
 
   background: var(--p-bg);
   color: var(--p-text);
@@ -107,10 +108,10 @@
 .plan-billing-toggle button.active { color: #000000; }
 
 /* Tint each card's toggle thumb/active-text to match its own accent. */
-.plan-card.theme-pink .plan-billing-toggle .toggle-thumb { background: var(--p-pink); }
-.plan-card.theme-pink .plan-billing-toggle button.active { color: #ffffff; }
-.plan-card.theme-purple .plan-billing-toggle .toggle-thumb { background: var(--p-purple); }
-.plan-card.theme-purple .plan-billing-toggle button.active { color: #ffffff; }
+.plan-card.theme-crimson .plan-billing-toggle .toggle-thumb { background: var(--p-crimson); }
+.plan-card.theme-crimson .plan-billing-toggle button.active { color: #ffffff; }
+.plan-card.theme-navy .plan-billing-toggle .toggle-thumb { background: var(--p-navy); }
+.plan-card.theme-navy .plan-billing-toggle button.active { color: #ffffff; }
 .plan-card.theme-gold .plan-billing-toggle .toggle-thumb { background: var(--p-gold); }
 .plan-card.theme-gold .plan-billing-toggle button.active { color: #1a1300; }
 
@@ -288,35 +289,115 @@
   pointer-events: none;
 }
 
-/* ---------- Free ---------- */
+/* Current Plan — green, fully opaque (not the generic faded-disabled look). */
+.plan-cta[disabled].is-current-plan {
+  opacity: 1;
+  background: #1E9E5A;
+  color: #ffffff;
+}
+
+/* Elite's Current Plan gets the animated gold gradient called for in spec. */
+.plan-cta[disabled].is-current-elite {
+  opacity: 1;
+  color: #241900;
+  background: linear-gradient(100deg, #FBBF24 0%, #FDE68A 45%, #FBBF24 100%);
+  background-size: 220% 100%;
+  animation: plan-gold-shimmer 4s ease-in-out infinite;
+}
+@keyframes plan-gold-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* "Included in Plus/Elite" — clearly inactive, no confusion with a real upgrade CTA. */
+.plan-cta[disabled].is-included {
+  opacity: 0.65;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--p-text-dim);
+}
+
+.plan-included-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--text-xs); font-weight: 700;
+  padding: 2px 8px; border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.10); color: var(--p-text-dim);
+  margin-left: 6px;
+}
+
+.plan-note {
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--p-text-dim);
+  margin-top: var(--space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-cta[disabled].is-current-elite { animation: none; }
+}
+
+/* ---------- Premium Status Banner (current subscription, top of page) ---------- */
+.premium-status-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  background: var(--p-card);
+  border: 1px solid var(--p-divider);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.premium-status-banner .status-plan { font-size: var(--text-md); font-weight: 700; }
+.premium-status-banner .status-meta { font-size: var(--text-sm); color: var(--p-text-dim); margin-top: 2px; }
+.premium-status-banner .status-badge {
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 4px 12px; border-radius: var(--radius-full);
+}
+.premium-status-banner.plan-free { border-color: var(--p-divider); }
+.premium-status-banner.plan-free .status-badge { background: rgba(255,255,255,0.10); color: var(--p-text-dim); }
+
+.premium-status-banner.plan-basic { border-color: rgba(168, 50, 60, 0.4); background: linear-gradient(135deg, rgba(168,50,60,0.14), var(--p-card)); }
+.premium-status-banner.plan-basic .status-badge { background: var(--p-crimson); color: #fff; }
+
+.premium-status-banner.plan-plus { border-color: rgba(210, 180, 140, 0.4); background: linear-gradient(135deg, rgba(46,92,148,0.18), var(--p-card)); }
+.premium-status-banner.plan-plus .status-badge { background: linear-gradient(100deg, #2E5C94, #D2B48C); color: #091321; }
+
+.premium-status-banner.plan-elite { border-color: rgba(251, 191, 36, 0.45); background: linear-gradient(135deg, rgba(251,191,36,0.14), var(--p-card)); }
+.premium-status-banner.plan-elite .status-badge { background: var(--p-gold); color: #241900; }
+
+.premium-status-banner.is-expired { border-color: rgba(255, 96, 96, 0.5); }
+.premium-status-banner.is-expired .status-badge { background: rgba(255, 96, 96, 0.18); color: #FF8080; }
+.premium-status-banner .status-expired-note {
+  font-size: var(--text-sm); color: #FF9E9E; margin-top: var(--space-2); flex-basis: 100%;
+}
 .plan-card.theme-free .plan-badge { background: rgba(255, 255, 255, 0.10); color: var(--p-text-dim); }
 
-/* ---------- Basic — soft pink ---------- */
-.plan-card.theme-pink {
-  border-color: rgba(236, 72, 153, 0.35);
-  box-shadow: 0 0 24px rgba(236, 72, 153, 0.08);
+/* ---------- Basic — deep burgundy ("Crimson Velvet") ---------- */
+.plan-card.theme-crimson {
+  border-color: rgba(168, 50, 60, 0.4);
+  box-shadow: 0 0 24px rgba(168, 50, 60, 0.10);
 }
-.plan-card.theme-pink .plan-badge { background: rgba(236, 72, 153, 0.16); color: var(--p-pink); }
-.plan-card.theme-pink .tick { background: rgba(236, 72, 153, 0.18); color: var(--p-pink); }
-.plan-card.theme-pink .plan-cta { background: var(--p-pink); color: #ffffff; }
+.plan-card.theme-crimson .plan-badge { background: rgba(168, 50, 60, 0.18); color: var(--p-crimson); }
+.plan-card.theme-crimson .tick { background: rgba(168, 50, 60, 0.20); color: var(--p-crimson); }
+.plan-card.theme-crimson .plan-cta {
+  background: linear-gradient(135deg, #59171B 0%, #A8323C 100%);
+  color: #FED7B8;
+}
 
-/* ---------- Plus — royal purple, highlighted + larger ---------- */
-.plan-card.theme-purple {
-  border-color: rgba(139, 92, 246, 0.55);
-  box-shadow: 0 0 32px rgba(139, 92, 246, 0.16);
+/* ---------- Plus — royal navy + tan, highlighted + larger ---------- */
+.plan-card.theme-navy {
+  border-color: rgba(210, 180, 140, 0.4);
+  box-shadow: 0 0 32px rgba(46, 92, 148, 0.20);
   padding: calc(var(--space-4) + 6px);
   transform: scale(1.02);
 }
 @media (hover: hover) {
-  .plan-card.theme-purple:hover { transform: translateY(-3px) scale(1.02); }
+  .plan-card.theme-navy:hover { transform: translateY(-3px) scale(1.02); }
 }
-.plan-card.theme-purple .plan-badge { background: var(--p-purple); color: #ffffff; }
-.plan-card.theme-purple .tick { background: rgba(139, 92, 246, 0.22); color: var(--p-purple); }
-.plan-card.theme-purple .plan-cta {
-  background: var(--p-purple);
-  color: #ffffff;
+.plan-card.theme-navy .plan-badge { background: var(--p-navy); color: #ffffff; }
+.plan-card.theme-navy .tick { background: rgba(46, 92, 148, 0.24); color: var(--p-tan); }
+.plan-card.theme-navy .plan-cta {
+  background: linear-gradient(135deg, #002147 0%, #2E5C94 55%, #D2B48C 100%);
+  color: #091321;
 }
-.plan-card.theme-purple .plan-name { font-size: 1.375rem; }
+.plan-card.theme-navy .plan-name { font-size: 1.375rem; }
 
 /* ---------- Elite — luxury gold ---------- */
 .plan-card.theme-gold {
@@ -371,8 +452,8 @@
 .compare-table tbody tr:last-child td { border-bottom: none; }
 .compare-table .yes { color: #34D399; font-weight: 700; }
 .compare-table .no { color: var(--p-text-faint); }
-.compare-table th.col-pink { color: var(--p-pink); }
-.compare-table th.col-purple { color: var(--p-purple); }
+.compare-table th.col-crimson { color: var(--p-crimson); }
+.compare-table th.col-navy { color: var(--p-navy); }
 .compare-table th.col-gold { color: var(--p-gold); }
 
 /* ---------- FAQ accordion ---------- */
@@ -563,6 +644,18 @@
   50%  { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
+
+/* Plus: soft blue glow instead of the shimmer sweep, per spec. */
+.premium-badge.plan-plus {
+  background: linear-gradient(100deg, #D2B48C 0%, #F8F0E5 100%);
+  color: #08182F;
+  animation: premium-blue-glow 2.6s ease-in-out infinite;
+}
+@keyframes premium-blue-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(122, 168, 255, 0.55); }
+  50%      { box-shadow: 0 0 10px 3px rgba(122, 168, 255, 0.55); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .premium-badge { animation: none; }
 }
@@ -585,7 +678,10 @@
   font-size: var(--text-md);
 }
 .theme-swatch-basic .theme-swatch-preview {
-  background: linear-gradient(135deg, #FF4FA3 0%, #FF78B8 55%, #0D0D0D 100%);
+  background: linear-gradient(135deg, #59171B 0%, #7A2328 55%, #0D0D0D 100%);
+}
+.theme-swatch-plus .theme-swatch-preview {
+  background: linear-gradient(135deg, #002147 0%, #08182F 55%, #D2B48C 100%);
 }
 .theme-swatch-default .theme-swatch-preview { background: var(--color-bg-secondary); }
 

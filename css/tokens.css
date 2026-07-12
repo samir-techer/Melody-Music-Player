@@ -118,7 +118,7 @@
 }
 
 /* ==========================================================================
-   PREMIUM THEME — "Basic Theme"
+   PREMIUM THEME — "Crimson Velvet" (Basic)
    Applied via [data-premium-theme="basic"] on <html>, set by
    theme-service.js only after premium status (Basic and above) has been
    verified via Firestore. Overrides the same color tokens dark mode uses,
@@ -126,24 +126,75 @@
    changes needed. --premium-* custom properties (also set by
    theme-service.js) are additionally exposed for anything that wants the
    raw brand colors directly (e.g. the Premium Themes picker swatches).
+   Luxurious-but-understated per spec: deep burgundy, not the previous
+   bright pink — buttons get a subtle burgundy gradient rather than a
+   flat fill.
    ========================================================================== */
 [data-premium-theme="basic"] {
   --color-bg:             var(--premium-background, #0D0D0D);
-  --color-bg-secondary:   #1A1A1A;
-  --color-card:           #171012;
+  --color-bg-secondary:   #150F0F;
+  --color-card:           var(--premium-card, #1A1313);
   --color-text-primary:   var(--premium-text, #FFFFFF);
-  --color-text-secondary: #D9A9C2;
-  --color-accent:         var(--premium-primary, #FF4FA3);
+  --color-text-secondary: var(--premium-muted-text, #C9C4C4);
+  --color-accent:         var(--premium-primary, #59171B);
 
-  --color-accent-soft:    rgba(255, 79, 163, 0.14);
-  --color-accent-softer:  rgba(255, 79, 163, 0.06);
-  --color-divider:        rgba(255, 192, 218, 0.14);
-  --color-overlay:        rgba(0, 0, 0, 0.6);
-  --color-heart:          var(--premium-secondary, #FF78B8);
+  --color-accent-soft:    rgba(89, 23, 27, 0.20);
+  --color-accent-softer:  rgba(89, 23, 27, 0.08);
+  --color-divider:        rgba(254, 215, 184, 0.12);
+  --color-overlay:        rgba(0, 0, 0, 0.65);
+  --color-heart:          var(--premium-secondary, #7A2328);
 
   color-scheme: dark;
 }
 
 [data-premium-theme="basic"] .btn-primary {
-  color: #0D0D0D;
+  color: var(--premium-accent, #FED7B8);
+  background: linear-gradient(135deg, var(--premium-primary, #59171B) 0%, var(--premium-secondary, #7A2328) 100%);
+  border: none;
+}
+
+/* ==========================================================================
+   PREMIUM THEME — "Royal Navy" (Plus)
+   Applied via [data-premium-theme="plus"]. Navy + tan, with cards using a
+   subtle blue-tinted glass effect (translucent card fill + blur) rather
+   than a flat surface, per spec ("subtle blue glassmorphism").
+   ========================================================================== */
+[data-premium-theme="plus"] {
+  --color-bg:             var(--premium-background, #091321);
+  --color-bg-secondary:   #0C1A2E;
+  --color-card:           #0F1F35;
+  --color-text-primary:   var(--premium-text, #FFFFFF);
+  --color-text-secondary: var(--premium-muted-text, #B7C2D6);
+  --color-accent:         var(--premium-accent, #D2B48C);
+
+  --color-accent-soft:    rgba(210, 180, 140, 0.16);
+  --color-accent-softer:  rgba(210, 180, 140, 0.06);
+  --color-divider:        rgba(210, 180, 140, 0.16);
+  --color-overlay:        rgba(2, 8, 18, 0.65);
+  --color-heart:          var(--premium-highlight, #F8F0E5);
+
+  color-scheme: dark;
+}
+
+[data-premium-theme="plus"] .btn-primary {
+  color: #091321;
+  background: linear-gradient(135deg, var(--premium-primary, #002147) 0%, var(--premium-accent, #D2B48C) 130%);
+  border: none;
+}
+
+/* Subtle blue glassmorphism on cards — translucent + blurred rather than
+   the flat --color-card fill every other theme uses. */
+[data-premium-theme="plus"] .card,
+[data-premium-theme="plus"] .settings-list,
+[data-premium-theme="plus"] .admin-card {
+  background: rgba(15, 31, 53, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(210, 180, 140, 0.14);
+}
+
+/* Icons lean tan rather than the neutral default. */
+[data-premium-theme="plus"] .icon,
+[data-premium-theme="plus"] .lock-icon {
+  color: var(--premium-accent, #D2B48C);
 }

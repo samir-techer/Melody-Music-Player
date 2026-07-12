@@ -325,12 +325,40 @@
 .queue-drag-handle.locked { cursor: pointer; opacity: 0.6; }
 .queue-row.dragging { opacity: 0.4; }
 
-/* ---------- Audio Advertisement overlay ---------- */
+/* ---------- Audio Advertisement overlay ----------
+   Bug fix: this used to be `display: flex` unconditionally, which
+   silently overrides the [hidden] attribute's default `display: none`
+   (author CSS always wins over the UA stylesheet, regardless of
+   selector specificity) — so the bar was rendered, empty, at all times.
+   Fixed by collapsing it to zero height/opacity by default and only
+   expanding it via the .active class (toggled in JS, not the `hidden`
+   attribute), with slide + fade for both directions. */
 .ad-overlay {
   display: flex; align-items: center; gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
+  padding: 0 var(--space-4);
   background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid transparent;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-10px);
+  transition:
+    max-height var(--duration-base) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-standard),
+    padding var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard);
+}
+.ad-overlay.active {
+  max-height: 56px;
+  opacity: 1;
+  padding: var(--space-2) var(--space-4);
+  border-bottom-color: var(--color-divider);
+  transform: translateY(0);
+}
+/* Fading out slides back up rather than just vanishing in place. */
+.ad-overlay:not(.active) {
+  transform: translateY(-10px);
 }
 .ad-badge {
   flex-shrink: 0;
