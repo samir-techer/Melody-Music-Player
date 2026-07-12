@@ -29,7 +29,7 @@ import {
   getNicknameChangeStatus, changeNicknameWithLimit, friendlyAuthError,
 } from '../services/auth-service.js';
 import {
-  hasPremiumAccess, getEffectivePlan, subscribePremium, isAdmin,
+  hasPremiumAccess, getEffectivePlan, subscribePremium, isAdmin, waitForPremiumReady,
 } from '../services/premium-service.js';
 import {
   setCrossfadeConfig, getCrossfadeConfig, EQ_PRESETS, setEqualizerPreset, getEqualizerPreset,
@@ -60,6 +60,14 @@ const AUDIO_QUALITY_OPTIONS = [
 ];
 
 export async function renderSettingsScreen() {
+  // Never compute plan/role gating (theme unlocks, Admin button, Basic+/
+  // Plus+ features) from premium-service's cache before its first live
+  // Firestore snapshot has actually arrived — otherwise a fast navigation
+  // right after login/boot could render everything as locked for an
+  // account that's actually Plus/Elite/admin, simply because the
+  // onSnapshot listener hadn't delivered its first result yet.
+  await waitForPremiumReady();
+
   const currentMode = await getThemeMode();
   const songCount = await getSongCount().catch(() => 0);
   const favCount = (await getFavoriteIds().catch(() => [])).length;
@@ -80,9 +88,10 @@ export async function renderSettingsScreen() {
   // isAdmin()) purely as the trigger to re-render this screen when the
   // role changes elsewhere (see subscribePremium below), but the actual
   // show/hide decision for the button always matches what "Role" shows.
-  // Case-insensitive because Firestore data can end up as "Admin" or
-  // "ADMIN" (e.g. a manual console edit) just as easily as "admin".
-  const isAdminUser = (profile?.role || '').toLowerCase() === 'admin';
+  // Case-insensitive AND whitespace-tolerant, because Firestore data can
+  // end up as "Admin", "ADMIN ", etc. (e.g. a manual console edit) just
+  // as easily as a clean "admin".
+  const isAdminUser = (profile?.role || '').trim().toLowerCase() === 'admin';
   const selectedPremiumTheme = authUser ? await getSelectedPremiumTheme(authUser.uid) : null;
   const crossfade = getCrossfadeConfig();
   const eqPreset = getEqualizerPreset();

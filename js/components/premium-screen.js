@@ -17,7 +17,7 @@
  */
 
 import { navigate } from '../utils/router.js';
-import { getPremiumState, subscribePremium, PLAN_ORDER } from '../services/premium-service.js';
+import { getPremiumState, subscribePremium, PLAN_ORDER, waitForPremiumReady } from '../services/premium-service.js';
 
 const CURRENCY = 'रु';
 const FIRST_PURCHASE_OFF = 20; // % — stacks with yearly
@@ -155,6 +155,12 @@ const FAQS = [
 ];
 
 export async function renderPremiumScreen() {
+  // Avoid a flash of "Upgrade to X" for an account that's actually
+  // already Plus/Elite, just because premium-service's first live
+  // Firestore snapshot hadn't arrived yet at the exact moment this page
+  // was requested.
+  await waitForPremiumReady();
+
   const el = document.createElement('div');
   el.className = 'screen premium-screen';
 
@@ -429,12 +435,14 @@ function renderPlanCard(plan, billing, state) {
   let ctaClass = '';
   let disabled = false;
   let includedTag = '';
+  let planNote = '';
 
   if (plan.name === effectivePlan) {
     disabled = true;
     if (plan.name === 'Elite') {
       ctaLabel = '👑 Current Plan';
       ctaClass = 'is-current-elite';
+      planNote = 'You already own the highest plan.';
     } else if (plan.name === 'Free') {
       ctaLabel = 'Current Plan';
       ctaClass = 'is-current-plan';
@@ -479,6 +487,7 @@ function renderPlanCard(plan, billing, state) {
       </ul>
 
       <button type="button" class="plan-cta ${ctaClass}" data-plan-key="${plan.key}" ${disabled ? 'disabled' : ''}>${ctaLabel}</button>
+      ${planNote ? `<p class="plan-note">${escapeHtml(planNote)}</p>` : ''}
     </div>
   `;
 }
