@@ -23,7 +23,16 @@ export function showUpgradeDialog(message, requiredPlan = 'Basic') {
 
   function close() {
     overlay.classList.remove('open');
+    // transitionend is the normal path, but it can silently never fire
+    // (an interrupted transition, prefers-reduced-motion collapsing the
+    // duration to ~0 in some browsers, the tab being backgrounded mid-
+    // transition, etc.) — and unlike a normal in-flow element, this is a
+    // position:fixed, inset:0 overlay, so if it's never removed it just
+    // sits there invisible and silently eats every tap on the entire app
+    // forever. A timeout fallback guarantees it always gets cleaned up;
+    // calling .remove() twice is harmless if transitionend does fire.
     overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+    setTimeout(() => overlay.remove(), 400);
   }
 
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
