@@ -25,7 +25,7 @@
  * whatever was stuck from before this fix existed.
  */
 
-const CACHE_NAME = 'melody-shell-v11'; // bumped: switched to network-first + fixed a stale-cache bug that was silently serving old code indefinitely
+const CACHE_NAME = 'melody-shell-v12'; // bumped again: stuck-overlay bug fix + new Audio Processing engine
 
 const APP_SHELL = [
   './',
