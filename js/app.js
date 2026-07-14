@@ -21,7 +21,10 @@
 import { getUserItem, setUserItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/router.js';
 import { initTheme, applyPremiumThemeIfAny } from './services/theme-service.js';
-import { restoreState, setCrossfadeConfig, initEqualizerFromStorage } from './services/player-service.js';
+import {
+  restoreState, setCrossfadeConfig, initEqualizerFromStorage,
+  setAudioProcessingMode, setCleanBass, initAudioProcessingFromStorage, initCleanBassFromStorage,
+} from './services/player-service.js';
 import { initAdManager } from './services/ad-manager.js';
 import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser, signOutUser } from './services/auth-service.js';
 import { initPremium, subscribePremium, hasPremiumAccess, waitForPremiumReady, isAdmin } from './services/premium-service.js';
@@ -99,6 +102,12 @@ async function boot() {
   });
   initEqualizerFromStorage().catch((err) => {
     console.error('[Melody] Equalizer preset restore failed — using Normal.', err);
+  });
+  initAudioProcessingFromStorage().catch((err) => {
+    console.error('[Melody] Audio Processing mode restore failed — using Standard.', err);
+  });
+  initCleanBassFromStorage().catch((err) => {
+    console.error('[Melody] Clean Bass preference restore failed — defaulting to on.', err);
   });
   initAdManager().catch((err) => {
     console.error('[Melody] Ad manifest load failed — ads disabled for this session.', err);
@@ -247,6 +256,12 @@ async function loadCrossfadeConfigForUser(uid) {
   const duration = Number.isFinite(profile?.crossfadeDuration) ? profile.crossfadeDuration : 3;
   setCrossfadeConfig({ enabled, duration });
   setCloudBackupActive(uid, Boolean(profile?.cloudBackupEnabled));
+
+  // Audio Processing mode is plan-gated (setAudioProcessingMode() itself
+  // forces non-entitled accounts back to "standard"); Clean Bass is free
+  // for everyone and defaults ON if the field has never been set.
+  setAudioProcessingMode(profile?.audioProcessingMode || 'standard');
+  setCleanBass(profile?.cleanBassEnabled === undefined ? true : Boolean(profile.cleanBassEnabled));
 }
 
 /**
