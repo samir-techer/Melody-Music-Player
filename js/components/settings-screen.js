@@ -33,6 +33,7 @@ import {
 } from '../services/premium-service.js';
 import {
   setCrossfadeConfig, getCrossfadeConfig, EQ_PRESETS, setEqualizerPreset, getEqualizerPreset,
+  AUDIO_PROCESSING_MODES, setAudioProcessingMode, getAudioProcessingMode, setCleanBass, getCleanBass,
 } from '../services/player-service.js';
 import { setCloudBackupActive } from '../services/cloud-backup-service.js';
 import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
@@ -43,20 +44,6 @@ const THEME_OPTIONS = [
   { key: 'system', label: 'System' },
   { key: 'light', label: 'Light' },
   { key: 'dark', label: 'Dark' },
-];
-
-// Premium — Higher Audio Quality (Plus+). Architecture placeholder per
-// spec ("prepare architecture even if playback isn't implemented") — this
-// only saves a preference to Firestore; no actual bitrate/DSP change is
-// wired into playback yet, since Melody's songs are user-imported local
-// files at whatever quality they already are. Lossless specifically is
-// flagged as a future placeholder — selectable, but disabled/no-op until
-// there's an actual lossless pipeline to back it.
-const AUDIO_QUALITY_OPTIONS = [
-  { key: 'standard', label: 'Standard' },
-  { key: 'high', label: 'High' },
-  { key: 'veryHigh', label: 'Very High' },
-  { key: 'lossless', label: 'Lossless (Coming Soon)', futurePlaceholder: true },
 ];
 
 export async function renderSettingsScreen() {
@@ -96,7 +83,8 @@ export async function renderSettingsScreen() {
   const crossfade = getCrossfadeConfig();
   const eqPreset = getEqualizerPreset();
   const nicknameStatus = authUser ? await getNicknameChangeStatus(authUser.uid) : { used: 0, remaining: 0, limit: 2 };
-  const audioQuality = profile?.audioQuality || 'standard';
+  const processingMode = getAudioProcessingMode();
+  const cleanBassOn = getCleanBass();
 
   const el = document.createElement('div');
   el.className = 'screen settings-screen has-shell';
@@ -232,15 +220,32 @@ export async function renderSettingsScreen() {
         }).join('')}
       </div>
 
-      <div class="section-heading" style="margin-top: var(--space-4);"><h3>Audio Quality</h3></div>
-      <div class="eq-preset-grid" id="audio-quality-grid">
-        ${AUDIO_QUALITY_OPTIONS.map((opt) => {
-          const unlocked = hasPremiumAccess('Plus') && !opt.futurePlaceholder;
-          const isCurrent = audioQuality === opt.key;
-          return `<button type="button" class="eq-preset-chip ${isCurrent ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-quality-key="${opt.key}" ${opt.futurePlaceholder ? 'disabled title="Coming soon"' : ''}>${unlocked ? '' : '🔒 '}${escapeHtml(opt.label)}</button>`;
+      <div class="section-heading" style="margin-top: var(--space-4);"><h3>Audio Processing</h3></div>
+      <div class="eq-preset-grid" id="audio-processing-grid">
+        ${Object.values(AUDIO_PROCESSING_MODES).map((mode) => {
+          const unlocked = hasPremiumAccess(mode.requiredPlan);
+          const isCurrent = processingMode === mode.key;
+          return `<button type="button" class="eq-preset-chip ${isCurrent ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-mode-key="${mode.key}" data-required-plan="${mode.requiredPlan}">${unlocked ? '' : '🔒 '}${escapeHtml(mode.label)}</button>`;
         }).join('')}
       </div>
-      <p class="admin-hint" style="color:var(--color-text-secondary);">${hasPremiumAccess('Plus') ? 'Lossless is reserved for a future update — selecting it just saves your preference for when it ships.' : 'Available with Plus.'}</p>
+      <p class="admin-hint" style="color:var(--color-text-secondary);">
+        ${processingMode === 'studio' ? 'Studio: highest-precision processing and the tightest anti-clip ceiling. Uses more battery.'
+          : processingMode === 'enhanced' ? 'Enhanced: fuller loudness balancing and a touch of stereo width.'
+          : 'Standard: the original playback engine — lowest battery usage.'}
+      </p>
+
+      <div class="settings-list" style="margin-top: var(--space-3);">
+        <div class="settings-row-toggle">
+          <div class="settings-row-label">
+            <span>Clean Bass</span>
+            <p class="settings-hint-inline">Prevents distortion during heavy bass boost. Turn off for louder, more aggressive (and possibly distorted) bass.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-clean-bass" ${cleanBassOn ? 'checked' : ''} />
+            <span class="toggle-track"><span class="toggle-thumb-switch"></span></span>
+          </label>
+        </div>
+      </div>
     </section>
 
     ${hasPremiumAccess('Plus') ? `
@@ -569,22 +574,36 @@ export async function renderSettingsScreen() {
   });
 
   /* ---------------------------------------------------------------- */
-  /*  Premium: Audio Quality (Plus+, placeholder architecture)          */
+  /*  Audio Processing (Standard/Enhanced/Studio) — actually reconfigures */
+  /*  the Web Audio chain, not just a saved preference.                  */
   /* ---------------------------------------------------------------- */
-  const audioQualityGrid = el.querySelector('#audio-quality-grid');
-  audioQualityGrid.addEventListener('click', async (e) => {
+  const audioProcessingGrid = el.querySelector('#audio-processing-grid');
+  audioProcessingGrid.addEventListener('click', async (e) => {
     const chip = e.target.closest('.eq-preset-chip');
-    if (!chip || chip.disabled) return;
-    const key = chip.dataset.qualityKey;
+    if (!chip) return;
+    const key = chip.dataset.modeKey;
+    const requiredPlan = chip.dataset.requiredPlan;
 
-    if (!hasPremiumAccess('Plus')) {
-      showUpgradeDialog('Upgrade to Plus to unlock Higher Audio Quality.', 'Plus');
+    if (!hasPremiumAccess(requiredPlan)) {
+      showUpgradeDialog(`Upgrade to ${requiredPlan} to unlock ${chip.textContent.trim()} Audio Processing.`, requiredPlan);
       return;
     }
-    await setDoc(doc(db, 'users', authUser.uid), { audioQuality: key }, { merge: true });
-    audioQualityGrid.querySelectorAll('.eq-preset-chip').forEach((c) => c.classList.toggle('active', c === chip));
-    const { showToast } = await import('../utils/toast.js');
-    showToast(key === 'lossless' ? 'Saved — Lossless will activate automatically once it ships.' : 'Audio quality preference saved.');
+    setAudioProcessingMode(key);
+    audioProcessingGrid.querySelectorAll('.eq-preset-chip').forEach((c) => c.classList.toggle('active', c === chip));
+    if (authUser) {
+      await setDoc(doc(db, 'users', authUser.uid), { audioProcessingMode: key }, { merge: true });
+    }
+  });
+
+  /* ---------------------------------------------------------------- */
+  /*  Clean Bass — free for every plan, default ON                      */
+  /* ---------------------------------------------------------------- */
+  el.querySelector('#toggle-clean-bass').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    setCleanBass(enabled);
+    if (authUser) {
+      await setDoc(doc(db, 'users', authUser.uid), { cleanBassEnabled: enabled }, { merge: true });
+    }
   });
 
   el.querySelector('#priority-support-btn')?.addEventListener('click', async () => {

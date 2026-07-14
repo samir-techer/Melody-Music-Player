@@ -41,6 +41,7 @@ const PLANS = [
       'Favorites',
       'Lyrics',
       'Equalizer',
+      'Clean Bass',
       'Sleep Timer',
       'Media Notifications',
     ],
@@ -83,7 +84,7 @@ const PLANS = [
       'Multi-Device Sync',
       'Unlimited Queue Length',
       'Unlimited Nickname Changes',
-      'Higher Audio Quality',
+      'Enhanced Audio Processing',
       'Experimental Features',
       'Priority Support',
     ],
@@ -100,6 +101,7 @@ const PLANS = [
     cta: 'Upgrade to Elite',
     features: [
       'Everything in Plus',
+      'Studio Audio Processing',
       'Unlimited Cloud Storage',
       'Early Access to New Features',
       'Custom Themes & Wallpapers',
@@ -115,6 +117,7 @@ const COMPARE_ROWS = [
   { label: 'Playlists, Shuffle & Repeat', tiers: ['free', 'basic', 'plus', 'elite'] },
   { label: 'Favorites & Lyrics', tiers: ['free', 'basic', 'plus', 'elite'] },
   { label: 'Sleep Timer', tiers: ['free', 'basic', 'plus', 'elite'] },
+  { label: 'Clean Bass', tiers: ['free', 'basic', 'plus', 'elite'] },
   { label: 'Ad-Free Listening', tiers: ['basic', 'plus', 'elite'] },
   { label: 'Premium Themes', tiers: ['basic', 'plus', 'elite'] },
   { label: 'Advanced Equalizer Presets', tiers: ['basic', 'plus', 'elite'] },
@@ -123,7 +126,7 @@ const COMPARE_ROWS = [
   { label: 'Exclusive Plus/Elite Badge', tiers: ['plus', 'elite'] },
   { label: 'Unlimited Queue Length', tiers: ['plus', 'elite'] },
   { label: 'Unlimited Nickname Changes', tiers: ['plus', 'elite'] },
-  { label: 'Higher Audio Quality', tiers: ['plus', 'elite'] },
+  { label: 'Enhanced/Studio Audio Processing', tiers: ['plus', 'elite'] },
   { label: 'Experimental Features', tiers: ['plus', 'elite'] },
   { label: 'Priority Support', tiers: ['plus', 'elite'] },
   { label: 'Unlimited Cloud Storage', tiers: ['elite'] },
@@ -569,6 +572,7 @@ function openComingSoonModal(screenEl) {
   function close() {
     overlay.classList.remove('open');
     overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+    setTimeout(() => overlay.remove(), 400); // fallback in case transitionend never fires — see upgrade-dialog.js for why this matters
   }
 
   overlay.querySelector('#modal-got-it').addEventListener('click', close);

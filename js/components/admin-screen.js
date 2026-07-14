@@ -287,6 +287,7 @@ export async function renderAdminScreen() {
     function close() {
       overlay.classList.remove('open');
       overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+      setTimeout(() => overlay.remove(), 400); // fallback in case transitionend never fires — see upgrade-dialog.js for why this matters
     }
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('.admin-panel-close').addEventListener('click', close);
