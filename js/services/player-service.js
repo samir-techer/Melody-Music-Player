@@ -57,6 +57,8 @@ import { notifySongCompleted, isAdCurrentlyPlaying, initAdManager } from './ad-m
 
 const PLAYBACK_STATE_KEY = 'playbackState';
 const EQ_PRESET_KEY = 'equalizerPreset';
+const CLEAN_BASS_KEY = 'cleanBassEnabled';
+const AUDIO_PROCESSING_KEY = 'audioProcessingMode';
 
 /**
  * Premium — Equalizer presets (Basic+). Free is always forced to
@@ -103,12 +105,44 @@ audio.defaultPlaybackRate = 1;
 try { audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitPreservesPitch = true; } catch (_) {}
 
 // ---------- Web Audio graph (lazy — created on first user-gesture play) ----------
+// Chain: source -> gain (crossfade) -> EQ (bass/mid/treble) -> Clean Bass
+//   compressor (free, always present) -> mid/side stereo widening network
+//   (Enhanced/Studio) -> loudness/limiter compressor (Enhanced/Studio) ->
+//   final anti-clip ceiling (always present) -> destination.
+// Everything below Standard tier stays at neutral/unity parameters rather
+// than being physically disconnected, so the graph topology is built once
+// and plan/setting changes are just parameter automation — no runtime
+// rewiring, no risk of leaving the graph in a half-connected state.
 let audioCtx = null;
 let gainNode = null; // dedicated to crossfade fades — never repurposed for volume/EQ
 let eqBass = null;
 let eqMid = null;
 let eqTreble = null;
 let currentEqPreset = 'normal';
+let eqSmoothingConstant = 0.05; // shorter = snappier, longer = smoother transitions (Enhanced/Studio use a longer constant)
+
+// Clean Bass (free, ON by default) — a gentle bus compressor tuned to
+// catch bass-driven peaks specifically, sitting right after the EQ.
+let cleanBassCompressor = null;
+let cleanBassEnabled = true;
+
+// Mid/side stereo widening network (Enhanced/Studio only — unity/no-op
+// for Standard). See setAudioProcessingMode() for the node graph.
+let stereoSplitter = null;
+let midGainL = null, midGainR = null, midSum = null;
+let sideGainL = null, sideGainR = null, sideSum = null, sideWiden = null;
+let reconL = null, reconR = null, reconLFromSide = null, reconRFromSide = null;
+let stereoMerger = null;
+
+// Loudness/limiter compressor (Standard: neutral/no-op; Enhanced: gentle
+// leveling; Studio: a tighter, more precise limiter).
+let processingCompressor = null;
+
+// Always-on final ceiling so nothing downstream can ever hard-clip,
+// tuned tighter for Studio ("improved anti-clipping").
+let finalLimiter = null;
+
+let currentProcessingMode = 'standard'; // 'standard' | 'enhanced' | 'studio'
 
 function ensureAudioGraph() {
   if (audioCtx) return;
@@ -121,9 +155,6 @@ function ensureAudioGraph() {
     gainNode.gain.value = 1; // single, fixed gain stage — never doubled up elsewhere
 
     // 3-band EQ chain — flat (0 dB) by default, i.e. identical to "Normal".
-    // Free accounts simply never have anything but "normal" applied to
-    // this chain (see setEqualizerPreset), so the audio path for Free
-    // users is unchanged from before this feature existed.
     eqBass = audioCtx.createBiquadFilter();
     eqBass.type = 'lowshelf';
     eqBass.frequency.value = 200;
@@ -135,7 +166,70 @@ function ensureAudioGraph() {
     eqTreble.type = 'highshelf';
     eqTreble.frequency.value = 4000;
 
-    sourceNode.connect(gainNode).connect(eqBass).connect(eqMid).connect(eqTreble).connect(audioCtx.destination);
+    // Clean Bass — available to every plan, ON by default. When enabled,
+    // catches bass-driven peaks before they distort; when disabled, it's
+    // parked at neutral values (threshold 0dB, ratio 1:1 = a no-op) so
+    // the signal passes through completely untouched, preserving the
+    // "aggressive bass" behavior the OFF setting promises.
+    cleanBassCompressor = audioCtx.createDynamicsCompressor();
+    applyCleanBassParams();
+
+    // ---- Mid/side stereo widening network (Enhanced/Studio) ----
+    // side = 0.5*(L-R), mid = 0.5*(L+R); widen the side signal, then
+    // reconstruct L' = mid + side*w, R' = mid - side*w. At w=1 this is
+    // an exact identity (L'=L, R'=R) — that's the Standard/unity state.
+    stereoSplitter = audioCtx.createChannelSplitter(2);
+
+    midGainL = audioCtx.createGain(); midGainL.gain.value = 0.5;
+    midGainR = audioCtx.createGain(); midGainR.gain.value = 0.5;
+    midSum = audioCtx.createGain(); midSum.gain.value = 1;
+
+    sideGainL = audioCtx.createGain(); sideGainL.gain.value = 0.5;
+    sideGainR = audioCtx.createGain(); sideGainR.gain.value = -0.5;
+    sideSum = audioCtx.createGain(); sideSum.gain.value = 1;
+    sideWiden = audioCtx.createGain(); sideWiden.gain.value = 1; // 1 = no widening (Standard)
+
+    reconL = audioCtx.createGain(); reconL.gain.value = 1;        // mid -> L
+    reconR = audioCtx.createGain(); reconR.gain.value = 1;        // mid -> R
+    reconLFromSide = audioCtx.createGain(); reconLFromSide.gain.value = 1;  // +side -> L
+    reconRFromSide = audioCtx.createGain(); reconRFromSide.gain.value = -1; // -side -> R
+    stereoMerger = audioCtx.createChannelMerger(2);
+
+    // Loudness/limiter compressor — neutral (no-op) for Standard.
+    processingCompressor = audioCtx.createDynamicsCompressor();
+
+    // Always-on final ceiling — prevents hard clipping regardless of
+    // tier; Studio tunes it tighter ("improved anti-clipping").
+    finalLimiter = audioCtx.createDynamicsCompressor();
+
+    applyProcessingModeParams(); // sets processingCompressor/finalLimiter/sideWiden for 'standard'
+
+    // Wire it all up.
+    sourceNode.connect(gainNode).connect(eqBass).connect(eqMid).connect(eqTreble).connect(cleanBassCompressor);
+
+    cleanBassCompressor.connect(stereoSplitter);
+    stereoSplitter.connect(midGainL, 0);
+    stereoSplitter.connect(midGainR, 1);
+    midGainL.connect(midSum);
+    midGainR.connect(midSum);
+
+    stereoSplitter.connect(sideGainL, 0);
+    stereoSplitter.connect(sideGainR, 1);
+    sideGainL.connect(sideSum);
+    sideGainR.connect(sideSum);
+    sideSum.connect(sideWiden);
+
+    midSum.connect(reconL);
+    sideWiden.connect(reconLFromSide);
+    reconL.connect(stereoMerger, 0, 0);
+    reconLFromSide.connect(stereoMerger, 0, 0);
+
+    midSum.connect(reconR);
+    sideWiden.connect(reconRFromSide);
+    reconR.connect(stereoMerger, 0, 1);
+    reconRFromSide.connect(stereoMerger, 0, 1);
+
+    stereoMerger.connect(processingCompressor).connect(finalLimiter).connect(audioCtx.destination);
   } catch (err) {
     // If this ever throws (e.g. graph already built for this element),
     // playback still works through the plain <audio> element unmodified.
@@ -159,9 +253,9 @@ export function setEqualizerPreset(presetKey) {
   const preset = EQ_PRESETS[allowed];
   if (eqBass && eqMid && eqTreble && audioCtx) {
     const now = audioCtx.currentTime;
-    eqBass.gain.setTargetAtTime(preset.bass, now, 0.05);
-    eqMid.gain.setTargetAtTime(preset.mid, now, 0.05);
-    eqTreble.gain.setTargetAtTime(preset.treble, now, 0.05);
+    eqBass.gain.setTargetAtTime(preset.bass, now, eqSmoothingConstant);
+    eqMid.gain.setTargetAtTime(preset.mid, now, eqSmoothingConstant);
+    eqTreble.gain.setTargetAtTime(preset.treble, now, eqSmoothingConstant);
   }
   return allowed;
 }
@@ -174,6 +268,137 @@ export function getEqualizerPreset() {
 export async function initEqualizerFromStorage() {
   const saved = await getItem(EQ_PRESET_KEY).catch(() => null);
   setEqualizerPreset(saved || 'normal');
+}
+
+/* -------------------------------------------------------------------- */
+/*  Clean Bass — free for every plan, ON by default                      */
+/* -------------------------------------------------------------------- */
+
+function applyCleanBassParams() {
+  if (!cleanBassCompressor || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const c = cleanBassCompressor;
+  if (cleanBassEnabled) {
+    // Tuned toward the low end: a fairly low threshold with a soft knee
+    // so it engages before bass boosts start distorting, fast enough to
+    // catch transient bass hits without visibly pumping the mix.
+    c.threshold.setTargetAtTime(-18, now, 0.05);
+    c.knee.setTargetAtTime(12, now, 0.05);
+    c.ratio.setTargetAtTime(6, now, 0.05);
+    c.attack.setTargetAtTime(0.003, now, 0.02);
+    c.release.setTargetAtTime(0.15, now, 0.05);
+  } else {
+    // Neutral / no-op — passes the signal through untouched, preserving
+    // the louder, more aggressive (and potentially distorting) bass the
+    // OFF state explicitly promises.
+    c.threshold.setTargetAtTime(0, now, 0.05);
+    c.knee.setTargetAtTime(0, now, 0.05);
+    c.ratio.setTargetAtTime(1, now, 0.05);
+    c.attack.setTargetAtTime(0.02, now, 0.02);
+    c.release.setTargetAtTime(0.05, now, 0.05);
+  }
+}
+
+export function setCleanBass(enabled) {
+  cleanBassEnabled = Boolean(enabled);
+  setItem(CLEAN_BASS_KEY, cleanBassEnabled).catch(() => {});
+  ensureAudioGraph();
+  applyCleanBassParams();
+  return cleanBassEnabled;
+}
+
+export function getCleanBass() {
+  return cleanBassEnabled;
+}
+
+/** Loads the saved Clean Bass preference (default ON) — call once at boot. */
+export async function initCleanBassFromStorage() {
+  const saved = await getItem(CLEAN_BASS_KEY).catch(() => null);
+  setCleanBass(saved === null || saved === undefined ? true : Boolean(saved));
+}
+
+/* -------------------------------------------------------------------- */
+/*  Audio Processing — Standard (Free) / Enhanced (Plus) / Studio (Elite) */
+/* -------------------------------------------------------------------- */
+
+export const AUDIO_PROCESSING_MODES = {
+  standard: { key: 'standard', label: 'Standard', requiredPlan: 'Free' },
+  enhanced: { key: 'enhanced', label: 'Enhanced', requiredPlan: 'Plus' },
+  studio: { key: 'studio', label: 'Studio', requiredPlan: 'Elite' },
+};
+
+function applyProcessingModeParams() {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const mode = currentProcessingMode;
+
+  if (mode === 'standard') {
+    // Everything neutral/unity — Standard's audio path is identical to
+    // Melody's original single-band-EQ-only chain.
+    sideWiden.gain.setTargetAtTime(1, now, 0.05);       // no stereo widening
+    processingCompressor.threshold.setTargetAtTime(0, now, 0.05);
+    processingCompressor.ratio.setTargetAtTime(1, now, 0.05);
+    processingCompressor.knee.setTargetAtTime(0, now, 0.05);
+    processingCompressor.attack.setTargetAtTime(0.02, now, 0.02);
+    processingCompressor.release.setTargetAtTime(0.05, now, 0.05);
+    finalLimiter.threshold.setTargetAtTime(-1, now, 0.05); // light safety ceiling only
+    finalLimiter.ratio.setTargetAtTime(4, now, 0.05);
+    finalLimiter.knee.setTargetAtTime(6, now, 0.05);
+    eqSmoothingConstant = 0.05;
+  } else if (mode === 'enhanced') {
+    // Plus — "better loudness balancing", "smoother EQ transitions",
+    // "better stereo imaging", "reduced processing artifacts".
+    sideWiden.gain.setTargetAtTime(1.25, now, 0.4); // modest, gentle widening
+    processingCompressor.threshold.setTargetAtTime(-24, now, 0.05);
+    processingCompressor.ratio.setTargetAtTime(3, now, 0.05);
+    processingCompressor.knee.setTargetAtTime(18, now, 0.05); // soft knee = fewer audible artifacts
+    processingCompressor.attack.setTargetAtTime(0.01, now, 0.02);
+    processingCompressor.release.setTargetAtTime(0.25, now, 0.05);
+    finalLimiter.threshold.setTargetAtTime(-0.5, now, 0.05);
+    finalLimiter.ratio.setTargetAtTime(8, now, 0.05);
+    finalLimiter.knee.setTargetAtTime(4, now, 0.05);
+    eqSmoothingConstant = 0.15; // smoother EQ transitions
+  } else if (mode === 'studio') {
+    // Elite — "highest precision", "advanced limiter", "better dynamic
+    // range", "improved anti-clipping", "highest quality playback path".
+    sideWiden.gain.setTargetAtTime(1.4, now, 0.4); // wider, still natural
+    processingCompressor.threshold.setTargetAtTime(-20, now, 0.05);
+    processingCompressor.ratio.setTargetAtTime(2.5, now, 0.05); // gentler ratio preserves more dynamic range
+    processingCompressor.knee.setTargetAtTime(24, now, 0.05);  // very soft knee, most transparent
+    processingCompressor.attack.setTargetAtTime(0.008, now, 0.02);
+    processingCompressor.release.setTargetAtTime(0.3, now, 0.05);
+    finalLimiter.threshold.setTargetAtTime(-0.2, now, 0.05); // tightest ceiling = most precise anti-clip
+    finalLimiter.ratio.setTargetAtTime(20, now, 0.05);        // near brick-wall = "advanced limiter"
+    finalLimiter.knee.setTargetAtTime(2, now, 0.05);
+    eqSmoothingConstant = 0.2; // smoothest of all three tiers
+  }
+}
+
+/**
+ * Sets the Audio Processing mode. Free accounts are always forced to
+ * "standard" here — same enforcement pattern as the equalizer — so the
+ * actual audio path can never end up in Enhanced/Studio without a
+ * verified Plus/Elite plan, regardless of what's stored locally or what
+ * the Settings UI shows.
+ */
+export function setAudioProcessingMode(modeKey) {
+  const requested = AUDIO_PROCESSING_MODES[modeKey] ? modeKey : 'standard';
+  const allowed = hasPremiumAccess(AUDIO_PROCESSING_MODES[requested].requiredPlan) ? requested : 'standard';
+  currentProcessingMode = allowed;
+  setItem(AUDIO_PROCESSING_KEY, allowed).catch(() => {});
+  ensureAudioGraph();
+  applyProcessingModeParams();
+  return allowed;
+}
+
+export function getAudioProcessingMode() {
+  return currentProcessingMode;
+}
+
+/** Loads the saved mode (if any) and re-applies plan gating — call once at boot. */
+export async function initAudioProcessingFromStorage() {
+  const saved = await getItem(AUDIO_PROCESSING_KEY).catch(() => null);
+  setAudioProcessingMode(saved || 'standard');
 }
 
 async function resumeAudioGraphIfNeeded() {
