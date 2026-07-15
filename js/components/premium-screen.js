@@ -102,9 +102,12 @@ const PLANS = [
     features: [
       'Everything in Plus',
       'Studio Audio Processing',
-      'Unlimited Cloud Storage',
+      'Gold Elite Theme',
+      'Advanced Audio Visualizer',
+      'Advanced Listening Insights',
+      'Smart Queue',
+      'Unlimited Cloud Backup',
       'Early Access to New Features',
-      'Custom Themes & Wallpapers',
       'VIP Support Priority',
     ],
   },
@@ -127,11 +130,13 @@ const COMPARE_ROWS = [
   { label: 'Unlimited Queue Length', tiers: ['plus', 'elite'] },
   { label: 'Unlimited Nickname Changes', tiers: ['plus', 'elite'] },
   { label: 'Enhanced/Studio Audio Processing', tiers: ['plus', 'elite'] },
-  { label: 'Experimental Features', tiers: ['plus', 'elite'] },
+  { label: 'Experimental Features', tiers: ['elite'] },
   { label: 'Priority Support', tiers: ['plus', 'elite'] },
-  { label: 'Unlimited Cloud Storage', tiers: ['elite'] },
-  { label: 'Early Access Features', tiers: ['elite'] },
-  { label: 'Custom Themes & Wallpapers', tiers: ['elite'] },
+  { label: 'Gold Elite Theme', tiers: ['elite'] },
+  { label: 'Advanced Audio Visualizer', tiers: ['elite'] },
+  { label: 'Advanced Listening Insights', tiers: ['elite'] },
+  { label: 'Smart Queue', tiers: ['elite'] },
+  { label: 'Unlimited Cloud Backup', tiers: ['elite'] },
 ];
 
 const FAQS = [

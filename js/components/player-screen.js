@@ -9,11 +9,15 @@ import { navigate } from '../utils/router.js';
 import {
   subscribe, togglePlay, next, previous, seek,
   toggleShuffle, cycleRepeatMode, playFromQueue, removeFromQueue, moveInQueue,
+  getAnalyserNode, saveQueueSnapshot, restoreQueueSnapshot, getQueueHistory,
+  restoreQueueFromHistory, getSmartQueueSuggestions, addToQueue,
 } from '../services/player-service.js';
 import { isFavorite, toggleFavorite, subscribeFavorites } from '../services/favorites-service.js';
 import { hasPremiumAccess } from '../services/premium-service.js';
 import { subscribe as subscribeAd } from '../services/ad-manager.js';
 import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
+import { getAllSongs } from '../services/library-service.js';
+import { showToast } from '../utils/toast.js';
 
 export async function renderPlayerScreen() {
   const el = document.createElement('div');
@@ -24,6 +28,7 @@ export async function renderPlayerScreen() {
       <span class="player-topbar-label">Now Playing</span>
       <div class="player-topbar-actions">
         <button id="lyrics-toggle" aria-label="Lyrics">Aa</button>
+        ${hasPremiumAccess('Elite') ? '<button id="visualizer-toggle" aria-label="Visualizer">✨</button>' : ''}
         <button id="queue-toggle" aria-label="Queue">☰</button>
       </div>
     </div>
@@ -33,6 +38,18 @@ export async function renderPlayerScreen() {
       <div class="ad-progress-track"><div class="ad-progress-fill" id="ad-progress-fill"></div></div>
       <span class="ad-remaining" id="ad-remaining">0:00</span>
     </div>
+
+    ${hasPremiumAccess('Elite') ? `
+    <div class="visualizer-panel" id="visualizer-panel" hidden>
+      <canvas class="visualizer-canvas" id="visualizer-canvas"></canvas>
+      <div class="visualizer-picker" id="visualizer-picker">
+        <button class="visualizer-chip active" data-viz="bars">Neon Bars</button>
+        <button class="visualizer-chip" data-viz="circular">Circular Spectrum</button>
+        <button class="visualizer-chip" data-viz="waveform">Waveform</button>
+        <button class="visualizer-chip" data-viz="pulse">Pulse Ring</button>
+        <button class="visualizer-chip" data-viz="eq">Dynamic Equalizer</button>
+      </div>
+    </div>` : ''}
 
     <div class="vinyl-stage">
       <div class="vinyl-disc" id="vinyl-disc" aria-hidden="true"></div>
@@ -75,6 +92,14 @@ export async function renderPlayerScreen() {
         <h2>Up Next</h2>
         <button id="queue-close" aria-label="Close queue">✕</button>
       </div>
+      ${hasPremiumAccess('Elite') ? `
+      <div class="smart-queue-actions">
+        <button id="smart-queue-save" class="elite-ripple">💾 Save</button>
+        <button id="smart-queue-restore" class="elite-ripple">♻️ Restore</button>
+        <button id="smart-queue-history" class="elite-ripple">🕓 History</button>
+        <button id="smart-queue-suggest" class="elite-ripple">✨ Suggest</button>
+      </div>
+      <div class="queue-history-list" id="queue-history-list" hidden></div>` : ''}
       <div class="queue-list" id="queue-list"></div>
     </div>
   `;
@@ -242,6 +267,7 @@ export async function renderPlayerScreen() {
     unsubscribeFavs();
     unsubscribeAd();
     if (rafId) cancelAnimationFrame(rafId);
+    if (vizRafId) cancelAnimationFrame(vizRafId);
   };
 
   el.querySelector('#player-back').addEventListener('click', () => navigate('home'));
@@ -270,6 +296,169 @@ export async function renderPlayerScreen() {
     seek(Number(seekBar.value));
     isDraggingSeek = false;
   });
+
+  /* ------------------------------------------------------------------ */
+  /*  Elite — Advanced Audio Visualizer                                   */
+  /* ------------------------------------------------------------------ */
+  let vizRafId = null;
+  if (hasPremiumAccess('Elite')) {
+    const vizPanel = el.querySelector('#visualizer-panel');
+    const vizCanvas = el.querySelector('#visualizer-canvas');
+    const vizToggleBtn = el.querySelector('#visualizer-toggle');
+    const vizPicker = el.querySelector('#visualizer-picker');
+    const vizCtx = vizCanvas.getContext('2d');
+    let vizType = 'bars';
+
+    function resizeCanvas() {
+      const rect = vizCanvas.getBoundingClientRect();
+      vizCanvas.width = Math.max(1, Math.round(rect.width * devicePixelRatio));
+      vizCanvas.height = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    }
+
+    function drawFrame() {
+      vizRafId = requestAnimationFrame(drawFrame);
+      if (vizPanel.hidden) return;
+      const analyser = getAnalyserNode();
+      if (!analyser) return;
+      const w = vizCanvas.width, h = vizCanvas.height;
+      vizCtx.clearRect(0, 0, w, h);
+
+      if (vizType === 'waveform') {
+        const data = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(data);
+        vizCtx.strokeStyle = '#FBBF24';
+        vizCtx.lineWidth = Math.max(1, h * 0.012);
+        vizCtx.beginPath();
+        const step = w / data.length;
+        data.forEach((v, i) => {
+          const y = (v / 255) * h;
+          i === 0 ? vizCtx.moveTo(0, y) : vizCtx.lineTo(i * step, y);
+        });
+        vizCtx.stroke();
+        return;
+      }
+
+      const freq = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freq);
+
+      if (vizType === 'bars' || vizType === 'eq') {
+        const bars = 40;
+        const barW = w / bars;
+        for (let i = 0; i < bars; i++) {
+          const v = freq[Math.floor((i / bars) * freq.length)] / 255;
+          const barH = v * h * (vizType === 'eq' ? 0.9 : 1);
+          const grad = vizCtx.createLinearGradient(0, h, 0, h - barH);
+          grad.addColorStop(0, '#FBBF24');
+          grad.addColorStop(1, '#FDE68A');
+          vizCtx.fillStyle = grad;
+          if (vizType === 'eq') {
+            vizCtx.fillRect(i * barW + 1, h / 2 - barH / 2, barW - 2, barH);
+          } else {
+            vizCtx.fillRect(i * barW + 1, h - barH, barW - 2, barH);
+          }
+        }
+        return;
+      }
+
+      if (vizType === 'circular') {
+        const cx = w / 2, cy = h / 2, radius = Math.min(w, h) * 0.28;
+        const bars = 64;
+        vizCtx.strokeStyle = '#FBBF24';
+        vizCtx.lineWidth = Math.max(1, w * 0.006);
+        for (let i = 0; i < bars; i++) {
+          const v = freq[Math.floor((i / bars) * freq.length)] / 255;
+          const angle = (i / bars) * Math.PI * 2;
+          const len = v * radius * 1.2;
+          const x1 = cx + Math.cos(angle) * radius;
+          const y1 = cy + Math.sin(angle) * radius;
+          const x2 = cx + Math.cos(angle) * (radius + len);
+          const y2 = cy + Math.sin(angle) * (radius + len);
+          vizCtx.beginPath();
+          vizCtx.moveTo(x1, y1);
+          vizCtx.lineTo(x2, y2);
+          vizCtx.stroke();
+        }
+        return;
+      }
+
+      if (vizType === 'pulse') {
+        const avg = freq.reduce((a, b) => a + b, 0) / freq.length / 255;
+        const cx = w / 2, cy = h / 2;
+        for (let ring = 0; ring < 3; ring++) {
+          const radius = Math.min(w, h) * (0.12 + ring * 0.09) * (0.7 + avg);
+          vizCtx.strokeStyle = `rgba(251, 191, 36, ${0.6 - ring * 0.15})`;
+          vizCtx.lineWidth = Math.max(1, w * 0.006);
+          vizCtx.beginPath();
+          vizCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+          vizCtx.stroke();
+        }
+      }
+    }
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    vizRafId = requestAnimationFrame(drawFrame);
+
+    vizToggleBtn.addEventListener('click', () => {
+      vizPanel.hidden = !vizPanel.hidden;
+      if (!vizPanel.hidden) resizeCanvas();
+    });
+
+    vizPicker.addEventListener('click', (e) => {
+      const chip = e.target.closest('.visualizer-chip');
+      if (!chip) return;
+      vizType = chip.dataset.viz;
+      vizPicker.querySelectorAll('.visualizer-chip').forEach((c) => c.classList.toggle('active', c === chip));
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Elite — Smart Queue                                                 */
+  /* ------------------------------------------------------------------ */
+  if (hasPremiumAccess('Elite')) {
+    const historyList = el.querySelector('#queue-history-list');
+
+    el.querySelector('#smart-queue-save').addEventListener('click', async () => {
+      const snap = await saveQueueSnapshot();
+      showToast(snap ? 'Queue saved.' : 'Nothing to save — the queue is empty.');
+    });
+
+    el.querySelector('#smart-queue-restore').addEventListener('click', async () => {
+      const ok = await restoreQueueSnapshot();
+      showToast(ok ? 'Queue restored.' : 'No saved queue found yet.');
+    });
+
+    el.querySelector('#smart-queue-history').addEventListener('click', async () => {
+      historyList.hidden = !historyList.hidden;
+      if (historyList.hidden) return;
+      const history = await getQueueHistory();
+      if (!history.length) {
+        historyList.innerHTML = `<p class="hint">No past queues yet.</p>`;
+        return;
+      }
+      historyList.innerHTML = history.map((h, i) => `
+        <div class="queue-history-row">
+          <span>${escapeHtml(h.titles.join(', '))}${h.count > h.titles.length ? ` +${h.count - h.titles.length} more` : ''}</span>
+          <button data-idx="${i}">Restore</button>
+        </div>
+      `).join('');
+      historyList.querySelectorAll('button[data-idx]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const ok = await restoreQueueFromHistory(Number(btn.dataset.idx));
+          if (ok) { showToast('Queue restored from history.'); historyList.hidden = true; }
+        });
+      });
+    });
+
+    el.querySelector('#smart-queue-suggest').addEventListener('click', async () => {
+      const allSongs = await getAllSongs().catch(() => []);
+      const suggestions = getSmartQueueSuggestions(allSongs, 5);
+      if (!suggestions.length) { showToast('No fresh suggestions right now.'); return; }
+      suggestions.forEach((s) => addToQueue(s));
+      showToast(`Added ${suggestions.length} suggested song${suggestions.length === 1 ? '' : 's'} to the queue.`);
+      if (latestState) renderQueue(latestState);
+    });
+  }
 
   return el;
 }

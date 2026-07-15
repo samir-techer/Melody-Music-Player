@@ -248,7 +248,17 @@ export async function renderSettingsScreen() {
       </div>
     </section>
 
-    ${hasPremiumAccess('Plus') ? `
+    ${hasPremiumAccess('Elite') ? `
+    <section class="section">
+      <div class="section-heading"><h2>Elite</h2></div>
+      <div class="settings-list">
+        <button class="settings-row settings-row-link" id="open-listening-insights" type="button">
+          <span>📊 Listening Insights</span>
+          <span class="settings-value">View →</span>
+        </button>
+      </div>
+    </section>
+
     <section class="section">
       <div class="section-heading"><h2>Experimental Features</h2></div>
       <div class="settings-list">
@@ -263,8 +273,9 @@ export async function renderSettingsScreen() {
           </label>
         </div>
       </div>
-    </section>
+    </section>` : ''}
 
+    ${hasPremiumAccess('Plus') ? `
     <section class="section">
       <div class="section-heading"><h2>Support</h2></div>
       <div class="settings-list">
@@ -604,6 +615,11 @@ export async function renderSettingsScreen() {
     if (authUser) {
       await setDoc(doc(db, 'users', authUser.uid), { cleanBassEnabled: enabled }, { merge: true });
     }
+  });
+
+  el.querySelector('#open-listening-insights')?.addEventListener('click', async () => {
+    const { navigate } = await import('../utils/router.js');
+    navigate('stats');
   });
 
   el.querySelector('#priority-support-btn')?.addEventListener('click', async () => {
