@@ -126,31 +126,79 @@
    changes needed. --premium-* custom properties (also set by
    theme-service.js) are additionally exposed for anything that wants the
    raw brand colors directly (e.g. the Premium Themes picker swatches).
-   Luxurious-but-understated per spec: deep burgundy, not the previous
-   bright pink — buttons get a subtle burgundy gradient rather than a
-   flat fill.
+   Inspiration: luxury hotel, velvet curtains, expensive wine, a candlelit
+   room — deep near-black background, soft rose glow, nothing bright red.
    ========================================================================== */
 [data-premium-theme="basic"] {
-  --color-bg:             var(--premium-background, #0D0D0D);
-  --color-bg-secondary:   #150F0F;
-  --color-card:           var(--premium-card, #1A1313);
+  --color-bg:             var(--premium-background, #0F0A0A);
+  --color-bg-secondary:   #170F11;
+  --color-card:           var(--premium-card, #1A0F12);
   --color-text-primary:   var(--premium-text, #FFFFFF);
-  --color-text-secondary: var(--premium-muted-text, #C9C4C4);
-  --color-accent:         var(--premium-primary, #59171B);
+  --color-text-secondary: var(--premium-muted-text, #C9A9B2);
+  --color-accent:         var(--premium-secondary, #A61D3B);
 
-  --color-accent-soft:    rgba(89, 23, 27, 0.20);
-  --color-accent-softer:  rgba(89, 23, 27, 0.08);
-  --color-divider:        rgba(254, 215, 184, 0.12);
-  --color-overlay:        rgba(0, 0, 0, 0.65);
-  --color-heart:          var(--premium-secondary, #7A2328);
+  --color-accent-soft:    rgba(166, 29, 59, 0.18);
+  --color-accent-softer:  rgba(166, 29, 59, 0.07);
+  --color-divider:        rgba(232, 160, 183, 0.12);
+  --color-overlay:        rgba(0, 0, 0, 0.68);
+  --color-heart:          var(--premium-accent, #E8A0B7);
 
   color-scheme: dark;
 }
 
+/* Deep velvet gradient card — a faint rose glow bleeding from one corner
+   rather than a flat fill, plus a soft inner highlight for richness. */
+[data-premium-theme="basic"] .card,
+[data-premium-theme="basic"] .settings-list,
+[data-premium-theme="basic"] .admin-card,
+[data-premium-theme="basic"] .plan-card {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(166, 29, 59, 0.16), transparent 60%),
+    linear-gradient(160deg, rgba(232, 160, 183, 0.05), rgba(0, 0, 0, 0.25)),
+    var(--color-card);
+  border: 1px solid rgba(232, 160, 183, 0.10);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(232, 160, 183, 0.05);
+}
+
 [data-premium-theme="basic"] .btn-primary {
-  color: var(--premium-accent, #FED7B8);
-  background: linear-gradient(135deg, var(--premium-primary, #59171B) 0%, var(--premium-secondary, #7A2328) 100%);
+  color: #FFFFFF;
+  background: linear-gradient(135deg, var(--premium-primary, #6A1024) 0%, var(--premium-secondary, #A61D3B) 100%);
   border: none;
+  box-shadow: 0 6px 20px rgba(166, 29, 59, 0.35);
+}
+
+/* Soft, very subtle red glow behind key surfaces — never a hard neon ring. */
+[data-premium-theme="basic"] .vinyl-disc,
+[data-premium-theme="basic"] .album-art {
+  box-shadow: 0 0 36px rgba(166, 29, 59, 0.28), var(--shadow-lg);
+}
+
+[data-premium-theme="basic"] input[type="range"] {
+  accent-color: var(--premium-secondary, #A61D3B);
+}
+[data-premium-theme="basic"] #seek-bar::-webkit-slider-thumb,
+[data-premium-theme="basic"] #seek-bar::-moz-range-thumb {
+  background: linear-gradient(135deg, var(--premium-secondary, #A61D3B), var(--premium-accent, #E8A0B7));
+  box-shadow: 0 0 10px rgba(232, 160, 183, 0.45);
+}
+[data-premium-theme="basic"] .transport-controls .play-pause {
+  background: linear-gradient(135deg, var(--premium-primary, #6A1024) 0%, var(--premium-secondary, #A61D3B) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 8px 24px rgba(166, 29, 59, 0.4);
+}
+[data-premium-theme="basic"] .theme-swatch.active .theme-swatch-preview,
+[data-premium-theme="basic"] .queue-row.current,
+[data-premium-theme="basic"] .bottom-nav button.active,
+[data-premium-theme="basic"] .eq-preset-chip.active {
+  color: var(--premium-accent, #E8A0B7);
+}
+[data-premium-theme="basic"] .eq-preset-chip.active {
+  background: var(--premium-secondary, #A61D3B);
+  border-color: var(--premium-secondary, #A61D3B);
+}
+[data-premium-theme="basic"] .library-search-bar:focus-within {
+  border-color: var(--premium-accent, #E8A0B7);
+  box-shadow: 0 0 0 3px rgba(232, 160, 183, 0.16);
 }
 
 /* ==========================================================================
@@ -182,15 +230,19 @@
   border: none;
 }
 
-/* Subtle blue glassmorphism on cards — translucent + blurred rather than
-   the flat --color-card fill every other theme uses. */
+/* Subtle blue glassmorphism on cards — translucent + blurred, with a
+   touch more depth and a soft cyan-tinted inner glow than before. */
 [data-premium-theme="plus"] .card,
 [data-premium-theme="plus"] .settings-list,
-[data-premium-theme="plus"] .admin-card {
-  background: rgba(15, 31, 53, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(210, 180, 140, 0.14);
+[data-premium-theme="plus"] .admin-card,
+[data-premium-theme="plus"] .plan-card {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(122, 168, 255, 0.10), transparent 60%),
+    rgba(15, 31, 53, 0.55);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(210, 180, 140, 0.16);
+  box-shadow: 0 12px 32px rgba(2, 8, 18, 0.4), inset 0 1px 0 rgba(210, 180, 140, 0.06);
 }
 
 /* Icons lean tan rather than the neutral default. */
@@ -198,58 +250,133 @@
 [data-premium-theme="plus"] .lock-icon {
   color: var(--premium-accent, #D2B48C);
 }
+[data-premium-theme="plus"] .vinyl-disc,
+[data-premium-theme="plus"] .album-art {
+  box-shadow: 0 0 32px rgba(122, 168, 255, 0.22), var(--shadow-lg);
+}
+[data-premium-theme="plus"] .bottom-nav button.active {
+  color: var(--premium-accent, #D2B48C);
+}
+[data-premium-theme="plus"] .eq-preset-chip.active {
+  background: var(--premium-primary, #002147);
+  color: var(--premium-accent, #D2B48C);
+  border-color: var(--premium-accent, #D2B48C);
+}
+[data-premium-theme="plus"] .library-search-bar:focus-within {
+  border-color: var(--premium-accent, #D2B48C);
+  box-shadow: 0 0 0 3px rgba(210, 180, 140, 0.16);
+}
 
 /* ==========================================================================
    PREMIUM THEME — "Gold Elite" (Elite)
-   Applied via [data-premium-theme="elite"]. Matte black base with gold
-   accents throughout — premium glass cards, gold sliders/icons/buttons,
-   elegant gradients. Elite's flagship look, applied app-wide (Home,
-   Library, Search, Settings, Now Playing, Mini Player, Dialogs, Premium
-   Page) automatically via the same token-override mechanism every other
-   Premium Theme uses.
+   Applied via [data-premium-theme="elite"]. Matte black base — gold is
+   used ONLY as a restrained accent (thin borders, small glows, selected
+   states), never as a fill. Inspired by Rolex, Rolls-Royce, brushed metal
+   and premium leather: less gold, used more deliberately, reads as more
+   expensive than covering everything in yellow ever could.
    ========================================================================== */
 [data-premium-theme="elite"] {
-  --color-bg:             var(--premium-background, #0B0A08);
-  --color-bg-secondary:   #121009;
-  --color-card:           #16130D;
-  --color-text-primary:   var(--premium-text, #F5F1EC);
-  --color-text-secondary: var(--premium-muted-text, #C9BFA6);
-  --color-accent:         var(--premium-accent, #FBBF24);
+  --color-bg:             var(--premium-background, #090909);
+  --color-bg-secondary:   #101010;
+  --color-card:           #151515;
+  --color-text-primary:   var(--premium-text, #FFFFFF);
+  --color-text-secondary: var(--premium-muted-text, #B8B8B8);
+  --color-accent:         var(--premium-primary, #C9A227);
 
-  --color-accent-soft:    rgba(251, 191, 36, 0.16);
-  --color-accent-softer:  rgba(251, 191, 36, 0.06);
-  --color-divider:        rgba(251, 191, 36, 0.16);
-  --color-overlay:        rgba(0, 0, 0, 0.7);
-  --color-heart:          var(--premium-highlight, #FDE68A);
+  --color-accent-soft:    rgba(201, 162, 39, 0.14);
+  --color-accent-softer:  rgba(201, 162, 39, 0.05);
+  --color-divider:        rgba(201, 162, 39, 0.14);
+  --color-overlay:        rgba(0, 0, 0, 0.72);
+  --color-heart:          var(--premium-secondary, #D4AF37);
 
   color-scheme: dark;
 }
 
+/* Matte black button with a thin gold outline rather than a gold fill —
+   "gold should feel expensive," never a solid yellow block. */
 [data-premium-theme="elite"] .btn-primary {
-  color: #1A1300;
-  background: linear-gradient(135deg, var(--premium-accent, #FBBF24) 0%, var(--premium-highlight, #FDE68A) 100%);
-  border: none;
+  color: var(--premium-highlight, #F6E7B0);
+  background: #151515;
+  border: 1px solid var(--premium-secondary, #D4AF37);
+  box-shadow: 0 0 14px rgba(212, 175, 55, 0.22);
 }
 
-/* Premium glass cards — matte black with a faint gold edge, per spec. */
+/* Matte black cards, thin gold border, soft gold shadow — no blur, no
+   heavy glass. Less is more. */
 [data-premium-theme="elite"] .card,
 [data-premium-theme="elite"] .settings-list,
 [data-premium-theme="elite"] .admin-card,
 [data-premium-theme="elite"] .plan-card {
-  background: linear-gradient(160deg, rgba(251, 191, 36, 0.05), rgba(0, 0, 0, 0.2)), var(--premium-card, rgba(251, 191, 36, 0.06));
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(251, 191, 36, 0.18);
+  background: var(--premium-card, #151515);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(212, 175, 55, 0.03);
 }
 
-/* Gold icons, lock glyphs, and range sliders. */
+/* Icons default to white; only selected / active states pick up gold. */
 [data-premium-theme="elite"] .icon,
 [data-premium-theme="elite"] .lock-icon {
-  color: var(--premium-accent, #FBBF24);
+  color: var(--premium-text, #FFFFFF);
 }
+[data-premium-theme="elite"] .bottom-nav button.active,
+[data-premium-theme="elite"] .bottom-nav button.active .icon,
+[data-premium-theme="elite"] .theme-swatch.active .icon,
+[data-premium-theme="elite"] .secondary-control.active,
+[data-premium-theme="elite"] .eq-preset-chip.active {
+  color: var(--premium-primary, #C9A227);
+}
+[data-premium-theme="elite"] .bottom-nav button.active {
+  filter: drop-shadow(0 0 5px rgba(201, 162, 39, 0.5));
+}
+[data-premium-theme="elite"] .eq-preset-chip.active {
+  background: transparent;
+  border-color: var(--premium-secondary, #D4AF37);
+}
+
+/* Gold gradient sliders with a soft glow around the thumb. */
 [data-premium-theme="elite"] input[type="range"] {
-  accent-color: var(--premium-accent, #FBBF24);
+  accent-color: var(--premium-primary, #C9A227);
+}
+[data-premium-theme="elite"] #seek-bar {
+  background: linear-gradient(90deg, var(--premium-primary, #C9A227), var(--premium-secondary, #D4AF37));
+}
+[data-premium-theme="elite"] #seek-bar::-webkit-slider-thumb,
+[data-premium-theme="elite"] #seek-bar::-moz-range-thumb {
+  background: var(--premium-highlight, #F6E7B0);
+  box-shadow: 0 0 8px rgba(212, 175, 55, 0.55);
 }
 [data-premium-theme="elite"] .toggle-switch input:checked + .toggle-track {
-  background: linear-gradient(100deg, var(--premium-accent, #FBBF24), var(--premium-highlight, #FDE68A));
+  background: linear-gradient(100deg, var(--premium-primary, #C9A227), var(--premium-secondary, #D4AF37));
+}
+
+/* Matte black circular play button, thin gold outline, small gold glow —
+   never the bright solid-yellow disc it used to be. */
+[data-premium-theme="elite"] .transport-controls .play-pause {
+  background: #101010;
+  color: var(--premium-highlight, #F6E7B0);
+  border: 1px solid var(--premium-secondary, #D4AF37);
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.3), var(--shadow-md);
+}
+
+/* Luxury vinyl: black disc, thin gold ring, subtle reflections — not a
+   solid gold repeating pattern. */
+[data-premium-theme="elite"] .vinyl-disc {
+  background:
+    repeating-radial-gradient(circle at 45% 40%, rgba(255,255,255,0.05) 0px, transparent 2px, transparent 6px),
+    radial-gradient(circle at 40% 35%, #2A2A2A 0%, #0C0C0C 70%);
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12), 0 0 28px rgba(201, 162, 39, 0.22), var(--shadow-md);
+}
+[data-premium-theme="elite"] .album-art {
+  box-shadow: 0 0 24px rgba(201, 162, 39, 0.18), var(--shadow-lg);
+}
+
+/* Favorite heart fills gold only when liked. */
+[data-premium-theme="elite"] .favorite-btn.is-favorite {
+  color: var(--premium-secondary, #D4AF37);
+}
+
+/* Search bar: dark, with a gold border on focus. */
+[data-premium-theme="elite"] .library-search-bar:focus-within {
+  border-color: var(--premium-primary, #C9A227);
+  box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.18);
 }

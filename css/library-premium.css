@@ -69,8 +69,11 @@
   background: var(--color-card);
   border-radius: var(--radius-full);
   padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
   box-shadow: var(--shadow-sm);
   color: var(--color-text-secondary);
+  transition: border-color var(--duration-base) var(--ease-standard),
+              box-shadow var(--duration-base) var(--ease-standard);
 }
 .library-search-bar input[type="search"] {
   flex: 1;

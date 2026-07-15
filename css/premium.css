@@ -20,7 +20,7 @@
   --p-crimson: #A8323C; /* Basic — "Crimson Velvet" marketing accent (brighter than the in-app #59171B so it still pops on this pure-black page) */
   --p-navy:    #2E5C94; /* Plus — "Royal Navy" marketing accent */
   --p-tan:     #D2B48C; /* Plus — secondary accent, matches the in-app theme's tan */
-  --p-gold:    #FBBF24;
+  --p-gold:    #C9A227;
 
   background: var(--p-bg);
   color: var(--p-text);
@@ -300,7 +300,7 @@
 .plan-cta[disabled].is-current-elite {
   opacity: 1;
   color: #241900;
-  background: linear-gradient(100deg, #FBBF24 0%, #FDE68A 45%, #FBBF24 100%);
+  background: linear-gradient(100deg, #C9A227 0%, #F6E7B0 45%, #C9A227 100%);
   background-size: 220% 100%;
   animation: plan-gold-shimmer 4s ease-in-out infinite;
 }
@@ -359,7 +359,7 @@
 .premium-status-banner.plan-plus { border-color: rgba(210, 180, 140, 0.4); background: linear-gradient(135deg, rgba(46,92,148,0.18), var(--p-card)); }
 .premium-status-banner.plan-plus .status-badge { background: linear-gradient(100deg, #2E5C94, #D2B48C); color: #091321; }
 
-.premium-status-banner.plan-elite { border-color: rgba(251, 191, 36, 0.45); background: linear-gradient(135deg, rgba(251,191,36,0.14), var(--p-card)); }
+.premium-status-banner.plan-elite { border-color: rgba(201, 162, 39, 0.45); background: linear-gradient(135deg, rgba(201,162,39,0.14), var(--p-card)); }
 .premium-status-banner.plan-elite .status-badge { background: var(--p-gold); color: #241900; }
 
 .premium-status-banner.is-expired { border-color: rgba(255, 96, 96, 0.5); }
@@ -401,11 +401,11 @@
 
 /* ---------- Elite — luxury gold ---------- */
 .plan-card.theme-gold {
-  border-color: rgba(251, 191, 36, 0.4);
-  box-shadow: 0 0 24px rgba(251, 191, 36, 0.10);
+  border-color: rgba(201, 162, 39, 0.4);
+  box-shadow: 0 0 24px rgba(201, 162, 39, 0.10);
 }
-.plan-card.theme-gold .plan-badge { background: rgba(251, 191, 36, 0.16); color: var(--p-gold); }
-.plan-card.theme-gold .tick { background: rgba(251, 191, 36, 0.20); color: var(--p-gold); }
+.plan-card.theme-gold .plan-badge { background: rgba(201, 162, 39, 0.16); color: var(--p-gold); }
+.plan-card.theme-gold .tick { background: rgba(201, 162, 39, 0.20); color: var(--p-gold); }
 .plan-card.theme-gold .plan-cta { background: var(--p-gold); color: #1a1300; }
 
 /* ---------- Section headings ---------- */
@@ -658,14 +658,14 @@
 
 /* Elite: solid gold shimmer with a soft glow — the most premium of the three. */
 .premium-badge.plan-elite {
-  background: linear-gradient(100deg, #FBBF24 0%, #FDE68A 45%, #FBBF24 100%);
+  background: linear-gradient(100deg, #C9A227 0%, #F6E7B0 45%, #C9A227 100%);
   background-size: 220% 100%;
   color: #1A1300;
   animation: premium-shimmer 3.4s ease-in-out infinite, premium-gold-glow 2.6s ease-in-out infinite;
 }
 @keyframes premium-gold-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5); }
-  50%      { box-shadow: 0 0 12px 3px rgba(251, 191, 36, 0.5); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.5); }
+  50%      { box-shadow: 0 0 12px 3px rgba(201, 162, 39, 0.5); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -696,7 +696,7 @@
   background: linear-gradient(135deg, #002147 0%, #08182F 55%, #D2B48C 100%);
 }
 .theme-swatch-elite .theme-swatch-preview {
-  background: linear-gradient(135deg, #0B0A08 0%, #1A1611 55%, #FBBF24 100%);
+  background: linear-gradient(135deg, #0B0A08 0%, #1A1611 55%, #C9A227 100%);
 }
 .theme-swatch-default .theme-swatch-preview { background: var(--color-bg-secondary); }
 
