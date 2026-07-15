@@ -499,7 +499,12 @@ export async function renderSettingsScreen() {
   /* ---------------------------------------------------------------- */
   el.querySelector('#premium-theme-grid').addEventListener('click', async (e) => {
     const swatch = e.target.closest('.theme-swatch');
-    if (!swatch || !authUser) return;
+    if (!swatch) return;
+    if (!authUser) {
+      const { showToast } = await import('../utils/toast.js');
+      showToast('You need to be signed in to change themes — try reloading.');
+      return;
+    }
     const themeKey = swatch.dataset.themeKey || null;
     const requiredPlan = swatch.dataset.requiredPlan;
 
@@ -508,8 +513,14 @@ export async function renderSettingsScreen() {
       return;
     }
 
-    await setSelectedPremiumTheme(authUser.uid, themeKey);
-    el.querySelectorAll('.theme-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
+    try {
+      await setSelectedPremiumTheme(authUser.uid, themeKey);
+      el.querySelectorAll('.theme-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
+    } catch (err) {
+      console.error('[Melody] Theme selection failed.', err);
+      const { showToast } = await import('../utils/toast.js');
+      showToast(`Couldn't save theme: ${err?.message || 'unknown error'}`);
+    }
   });
 
   /* ---------------------------------------------------------------- */
