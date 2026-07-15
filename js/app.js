@@ -43,6 +43,9 @@ import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
 import { renderAdminScreen } from './components/admin-screen.js';
+import { renderStatsScreen } from './components/stats-screen.js';
+import { initStats } from './services/stats-service.js';
+import { showEliteStartupSplash } from './utils/elite-startup.js';
 
 let currentAuthUser = null;
 
@@ -91,6 +94,16 @@ async function boot() {
     },
   });
 
+  registerRoute('stats', renderStatsScreen, {
+    requiresAuth: true,
+    // Same live, never-cached guard pattern as 'admin' — Listening
+    // Insights is an Elite-exclusive surface.
+    guard: async () => {
+      await waitForPremiumReady();
+      return hasPremiumAccess('Elite');
+    },
+  });
+
   setAuthGuard(() => !!currentAuthUser);
   console.log('[Melody] Router mounted');
 
@@ -111,6 +124,9 @@ async function boot() {
   });
   initAdManager().catch((err) => {
     console.error('[Melody] Ad manifest load failed — ads disabled for this session.', err);
+  });
+  initStats().catch((err) => {
+    console.error('[Melody] Listening Insights: stats load failed — starting from zero this session.', err);
   });
 
   // ---------- Theme / settings ----------
@@ -165,6 +181,16 @@ async function boot() {
   try {
     await navigate(startRoute);
     console.log(`[Melody] ${capitalize(startRoute)} rendered`);
+    // "When an Elite user opens Melody" — deliberately scoped to a real
+    // app open landing straight on Home (not first-run nickname/greeting,
+    // and not verify-email), and to *actual* Elite status confirmed via
+    // Firestore rather than an optimistic guess. Fired after navigate()
+    // so it never delays first paint.
+    if (startRoute === 'home') {
+      waitForPremiumReady()
+        .then(() => { if (hasPremiumAccess('Elite')) showEliteStartupSplash(); })
+        .catch(() => {});
+    }
   } catch (err) {
     console.error(`[Melody] Failed to render "${startRoute}" — attempting Login as last resort.`, err);
     if (startRoute !== 'login') {
