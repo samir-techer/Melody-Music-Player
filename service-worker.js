@@ -25,7 +25,7 @@
  * whatever was stuck from before this fix existed.
  */
 
-const CACHE_NAME = 'melody-shell-v12'; // bumped again: stuck-overlay bug fix + new Audio Processing engine
+const CACHE_NAME = 'melody-shell-v13'; // bumped: Elite build pass (Gold Theme, Visualizer, Stats, Smart Queue) — forces a clean cache purge
 
 const APP_SHELL = [
   './',
@@ -44,6 +44,7 @@ const APP_SHELL = [
   './css/premium.css',
   './css/auth.css',
   './css/admin.css',
+  './css/elite.css',
 
   './js/app.js',
 
@@ -54,6 +55,7 @@ const APP_SHELL = [
   './js/utils/filename-cleaner.js',
   './js/utils/toast.js',
   './js/utils/upgrade-dialog.js',
+  './js/utils/elite-startup.js',
 
   './js/services/theme-service.js',
   './js/services/import-service.js',
@@ -73,6 +75,7 @@ const APP_SHELL = [
   './js/services/cloud-backup-service.js',
   './js/services/ad-manager.js',
   './js/services/admin-service.js',
+  './js/services/stats-service.js',
 
   './js/components/login-screen.js',
   './js/components/verify-email-screen.js',
@@ -92,6 +95,7 @@ const APP_SHELL = [
   './js/components/playlist-sheet.js',
   './js/components/shell.js',
   './js/components/song-list.js',
+  './js/components/stats-screen.js',
 
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
