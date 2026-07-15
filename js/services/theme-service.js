@@ -56,6 +56,21 @@ export const PREMIUM_THEMES = {
       mutedText: '#B7C2D6',
     },
   },
+  elite: {
+    key: 'elite',
+    label: 'Gold Elite',
+    requiredPlan: 'Elite',
+    colors: {
+      primary: '#1A1611',
+      secondary: '#0D0B08',
+      accent: '#FBBF24',
+      highlight: '#FDE68A',
+      background: '#0B0A08',
+      card: 'rgba(251, 191, 36, 0.06)', // matte black with a faint gold glass card
+      text: '#F5F1EC',
+      mutedText: '#C9BFA6',
+    },
+  },
 };
 
 function applyPremiumThemeColors(themeKey) {

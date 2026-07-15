@@ -7,6 +7,10 @@
  * last queue + index, and simple settings like theme mode) so it can be
  * restored after a reinstall as long as the same files get re-imported.
  *
+ * Elite widens the "Settings" that get backed up to include Equalizer,
+ * Audio Processing mode, the selected Premium Theme, and Listening
+ * Statistics — see buildFullPayload()'s Elite branch below.
+ *
  * "Only upload changed data. Avoid unnecessary Firestore writes." — this
  * keeps an in-memory fingerprint of the last-written payload and skips
  * the write entirely when nothing changed.
@@ -17,8 +21,14 @@ import { db } from './firebase-config.js';
 import { hasPremiumAccess } from './premium-service.js';
 import { getFavoriteIds, subscribeFavorites } from './favorites-service.js';
 import { subscribePlaylists } from './playlist-service.js';
-import { subscribe as subscribePlayer } from './player-service.js';
-import { getThemeMode } from './theme-service.js';
+import {
+  subscribe as subscribePlayer,
+  getEqualizerPreset,
+  getCleanBass,
+  getAudioProcessingMode,
+} from './player-service.js';
+import { getThemeMode, getSelectedPremiumTheme } from './theme-service.js';
+import { getStatsSnapshot } from './stats-service.js';
 
 const REQUIRED_PLAN = 'Basic';
 let activeUid = null;
@@ -45,7 +55,7 @@ function scheduleWrite(uid, buildPayload) {
   clearTimeout(writeTimer);
   writeTimer = setTimeout(async () => {
     try {
-      const payload = await buildPayload();
+      const payload = await buildPayload(uid);
       await writeBackup(uid, payload);
     } catch (err) {
       console.error('[Melody] Cloud Backup: sync failed.', err);
@@ -53,7 +63,7 @@ function scheduleWrite(uid, buildPayload) {
   }, 1200); // small debounce so rapid changes (bulk favoriting, etc.) collapse into one write
 }
 
-async function buildFullPayload() {
+async function buildFullPayload(uid) {
   const [favoriteIds, playlists, themeMode] = await Promise.all([
     getFavoriteIds().catch(() => []),
     import('./playlist-service.js').then((m) => m.getAllPlaylists()).catch(() => []),
@@ -61,7 +71,7 @@ async function buildFullPayload() {
   ]);
   const playerState = subscribePlayerSnapshotOnce();
 
-  return {
+  const payload = {
     favoriteIds,
     playlists: playlists.map((p) => ({ id: p.id, name: p.name, songIds: p.songIds })),
     queue: {
@@ -71,6 +81,24 @@ async function buildFullPayload() {
     settings: { themeMode },
     syncedAt: Date.now(),
   };
+
+  // Elite — Cloud Backup additionally covers Equalizer, Audio Processing,
+  // the selected Premium Theme, and Listening Statistics. Everything else
+  // (Favorites/Playlists/Settings/Queue) is already backed up at Basic+
+  // per spec — Elite just widens what "Settings" and "the account" mean.
+  if (hasPremiumAccess('Elite')) {
+    const [selectedPremiumTheme, listeningStats] = await Promise.all([
+      getSelectedPremiumTheme(uid).catch(() => null),
+      getStatsSnapshot().catch(() => null),
+    ]);
+    payload.settings.equalizerPreset = getEqualizerPreset();
+    payload.settings.audioProcessingMode = getAudioProcessingMode();
+    payload.settings.cleanBass = getCleanBass();
+    payload.settings.premiumTheme = selectedPremiumTheme;
+    payload.listeningStats = listeningStats;
+  }
+
+  return payload;
 }
 
 function subscribePlayerSnapshotOnce() {

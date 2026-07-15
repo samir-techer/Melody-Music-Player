@@ -54,6 +54,7 @@ import { recordPlay } from './history-service.js';
 import { getSong, incrementPlayCount } from './library-service.js';
 import { hasPremiumAccess } from './premium-service.js';
 import { notifySongCompleted, isAdCurrentlyPlaying, initAdManager } from './ad-manager.js';
+import { recordSongStart, tickListening, recordSkip as recordStatsSkip } from './stats-service.js';
 
 const PLAYBACK_STATE_KEY = 'playbackState';
 const EQ_PRESET_KEY = 'equalizerPreset';
@@ -144,6 +145,13 @@ let finalLimiter = null;
 
 let currentProcessingMode = 'standard'; // 'standard' | 'enhanced' | 'studio'
 
+// Analyser tap for the Elite Advanced Audio Visualizer — connected in
+// parallel off the final limiter (never inline in the playback chain, so
+// it can never affect audio) and only actually pulled from when a
+// visualizer is on-screen. Built here (not lazily) so it's always ready
+// the moment Elite opens the visualizer, with zero graph rewiring.
+let analyserNode = null;
+
 function ensureAudioGraph() {
   if (audioCtx) return;
   try {
@@ -230,6 +238,14 @@ function ensureAudioGraph() {
     reconRFromSide.connect(stereoMerger, 0, 1);
 
     stereoMerger.connect(processingCompressor).connect(finalLimiter).connect(audioCtx.destination);
+
+    // Elite visualizer tap — parallel branch, never in the main signal
+    // path to destination, so it's physically impossible for it to alter
+    // playback even if something misbehaves.
+    analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 256;
+    analyserNode.smoothingTimeConstant = 0.75;
+    finalLimiter.connect(analyserNode);
   } catch (err) {
     // If this ever throws (e.g. graph already built for this element),
     // playback still works through the plain <audio> element unmodified.
@@ -474,6 +490,9 @@ export function getState() {
 export async function loadQueue(songs, startIndex = 0) {
   if (!Array.isArray(songs) || songs.length === 0) return;
 
+  // Fire-and-forget — never block starting the new queue on this.
+  pushQueueHistoryIfElite(queue).catch(() => {});
+
   const limit = queueLimitForCurrentPlan();
   if (songs.length > limit) {
     // Keep a `limit`-sized window centered on the requested start index
@@ -634,6 +653,7 @@ function stepIndex(direction) {
 export async function next() {
   if (queue.length === 0 || isAdCurrentlyPlaying()) return;
   const targetIndex = stepIndex(1);
+  recordStatsSkip().catch(() => {});
 
   // Manual Next counts as a completed song, same as a natural end. Pause
   // the current song first — if an ad is due, it should never overlap
@@ -802,9 +822,135 @@ export function moveInQueue(from, to) {
   notify();
 }
 
+/* -------------------------------------------------------------------- */
+/*  Elite — Advanced Audio Visualizer                                     */
+/* -------------------------------------------------------------------- */
+// Read-only tap into the live signal, wired in ensureAudioGraph() as a
+// parallel branch off the final limiter. Returns null until the graph
+// has been built (i.e. before the first user-gesture play), which the
+// visualizer component handles by simply drawing nothing that frame.
+export function getAnalyserNode() {
+  ensureAudioGraph();
+  return analyserNode;
+}
+
+/* -------------------------------------------------------------------- */
+/*  Elite — Smart Queue                                                   */
+/* -------------------------------------------------------------------- */
+// Save Queue / Restore Queue / Queue History, gated to Elite. Stored
+// locally (via storage.js) rather than in Firestore directly — Cloud
+// Backup (Elite) picks these up as part of its normal payload so they
+// still travel with the account, without duplicating the sync logic here.
+const SAVED_QUEUE_KEY = 'eliteSavedQueue';
+const QUEUE_HISTORY_KEY = 'eliteQueueHistory';
+const QUEUE_HISTORY_MAX = 10;
+
+function queueSignature(songs) {
+  return songs.map((s) => s.id).join(',');
+}
+
+/** Called automatically whenever a *different* queue replaces a non-empty
+ *  one (Elite only) — this is what makes "Queue History" build itself up
+ *  passively instead of requiring an explicit save every time. */
+async function pushQueueHistoryIfElite(previousQueue) {
+  if (!hasPremiumAccess('Elite') || !previousQueue || previousQueue.length === 0) return;
+  try {
+    const history = (await getItem(QUEUE_HISTORY_KEY)) || [];
+    const sig = queueSignature(previousQueue);
+    if (history[0]?.signature === sig) return; // avoid back-to-back duplicate entries
+    history.unshift({
+      signature: sig,
+      songIds: previousQueue.map((s) => s.id),
+      titles: previousQueue.slice(0, 3).map((s) => s.title),
+      count: previousQueue.length,
+      at: Date.now(),
+    });
+    await setItem(QUEUE_HISTORY_KEY, history.slice(0, QUEUE_HISTORY_MAX));
+  } catch (err) {
+    console.error('[Melody] Smart Queue: failed to record history.', err);
+  }
+}
+
+/** Explicit "Save Queue" — snapshots the current queue + position. */
+export async function saveQueueSnapshot() {
+  if (!hasPremiumAccess('Elite')) return null;
+  if (queue.length === 0) return null;
+  const snap = { songIds: queue.map((s) => s.id), index, savedAt: Date.now() };
+  await setItem(SAVED_QUEUE_KEY, snap);
+  return snap;
+}
+
+export async function getSavedQueueSnapshot() {
+  if (!hasPremiumAccess('Elite')) return null;
+  return (await getItem(SAVED_QUEUE_KEY).catch(() => null)) || null;
+}
+
+async function resolveSongIds(ids) {
+  const songs = await Promise.all(ids.map((id) => getSong(id).catch(() => null)));
+  return songs.filter(Boolean);
+}
+
+/** "Restore Queue" — brings back the last explicitly-saved queue. */
+export async function restoreQueueSnapshot() {
+  if (!hasPremiumAccess('Elite')) return false;
+  const snap = await getSavedQueueSnapshot();
+  if (!snap?.songIds?.length) return false;
+  const songs = await resolveSongIds(snap.songIds);
+  if (songs.length === 0) return false;
+  await loadQueue(songs, Math.min(snap.index, songs.length - 1));
+  return true;
+}
+
+export async function getQueueHistory() {
+  if (!hasPremiumAccess('Elite')) return [];
+  return (await getItem(QUEUE_HISTORY_KEY).catch(() => [])) || [];
+}
+
+/** Restore a specific past queue from history by its index in the list. */
+export async function restoreQueueFromHistory(historyIndex) {
+  if (!hasPremiumAccess('Elite')) return false;
+  const history = await getQueueHistory();
+  const entry = history[historyIndex];
+  if (!entry?.songIds?.length) return false;
+  const songs = await resolveSongIds(entry.songIds);
+  if (songs.length === 0) return false;
+  await loadQueue(songs, 0);
+  return true;
+}
+
+/**
+ * Smart Queue suggestions — a lightweight, fully-local heuristic (no
+ * network/AI call): ranks `candidateSongs` (typically the user's whole
+ * library, passed in by the caller) by play count, favors songs sharing
+ * an artist or genre with the currently playing track, and excludes
+ * anything already queued. Deterministic and instant.
+ */
+export function getSmartQueueSuggestions(candidateSongs, count = 5) {
+  if (!hasPremiumAccess('Elite') || !Array.isArray(candidateSongs)) return [];
+  const queuedIds = new Set(queue.map((s) => s.id));
+  const current = queue[index];
+
+  const scored = candidateSongs
+    .filter((s) => !queuedIds.has(s.id))
+    .map((s) => {
+      let score = (s.playCount || 0);
+      if (current) {
+        if (s.artist && s.artist === current.artist) score += 8;
+        if (s.genre && s.genre === current.genre) score += 4;
+      }
+      return { song: s, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, count)
+    .map((entry) => entry.song);
+
+  return scored;
+}
+
 // ---------- Audio element event wiring (set up once) ----------
 
 audio.addEventListener('timeupdate', notify);
+audio.addEventListener('timeupdate', () => tickListening(audio.currentTime, !audio.paused));
 audio.addEventListener('play', notify);
 audio.addEventListener('pause', notify);
 audio.addEventListener('loadedmetadata', notify);
@@ -818,6 +964,7 @@ audio.addEventListener('playing', () => {
     lastRecordedSongId = song.id;
     recordPlay(song.id);
     incrementPlayCount(song.id).catch((err) => console.error('[Melody] Play count update failed.', err));
+    recordSongStart(song).catch((err) => console.error('[Melody] Stats: song-start record failed.', err));
 
     // Crossfade fade-in: the previous track's "ended"/manual-skip path
     // just armed a new load with gain still ramped toward 0 — bring it
