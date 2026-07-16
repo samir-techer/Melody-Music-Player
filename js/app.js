@@ -24,6 +24,7 @@ import { initTheme, applyPremiumThemeIfAny } from './services/theme-service.js';
 import {
   restoreState, setCrossfadeConfig, initEqualizerFromStorage,
   setAudioProcessingMode, setCleanBass, initAudioProcessingFromStorage, initCleanBassFromStorage,
+  initAcousticModeFromStorage, setAcousticMode,
 } from './services/player-service.js';
 import { initAdManager } from './services/ad-manager.js';
 import { onAuthChange, getUserProfile, getCurrentUser, waitForInitialUser, signOutUser } from './services/auth-service.js';
@@ -44,7 +45,12 @@ import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
 import { renderAdminScreen } from './components/admin-screen.js';
 import { renderStatsScreen } from './components/stats-screen.js';
+import { renderAchievementsScreen } from './components/achievements-screen.js';
+import { renderRewardsScreen } from './components/rewards-screen.js';
 import { initStats } from './services/stats-service.js';
+import { initAchievements, subscribeAchievementUnlocks } from './services/achievements-service.js';
+import { initRewards } from './services/rewards-service.js';
+import { showRewardPopup } from './utils/reward-popup.js';
 import { showEliteStartupSplash } from './utils/elite-startup.js';
 
 let currentAuthUser = null;
@@ -104,6 +110,10 @@ async function boot() {
     },
   });
 
+  // Melody Points / Achievements — free for every plan tier, no guard.
+  registerRoute('achievements', renderAchievementsScreen, { requiresAuth: true });
+  registerRoute('rewards-store', renderRewardsScreen, { requiresAuth: true });
+
   setAuthGuard(() => !!currentAuthUser);
   console.log('[Melody] Router mounted');
 
@@ -122,12 +132,19 @@ async function boot() {
   initCleanBassFromStorage().catch((err) => {
     console.error('[Melody] Clean Bass preference restore failed — defaulting to on.', err);
   });
+  initAcousticModeFromStorage().catch((err) => {
+    console.error('[Melody] Acoustic Mode preference restore failed — defaulting to off.', err);
+  });
   initAdManager().catch((err) => {
     console.error('[Melody] Ad manifest load failed — ads disabled for this session.', err);
   });
   initStats().catch((err) => {
     console.error('[Melody] Listening Insights: stats load failed — starting from zero this session.', err);
   });
+
+  // Melody Points / Achievements — fires the reward popup app-wide,
+  // regardless of which screen is open when something unlocks.
+  subscribeAchievementUnlocks((payload) => showRewardPopup(payload));
 
   // ---------- Theme / settings ----------
   try {
@@ -145,6 +162,8 @@ async function boot() {
   try {
     currentAuthUser = await waitForInitialUser();
     initPremium(currentAuthUser?.uid || null);
+    initAchievements(currentAuthUser?.uid || null);
+    initRewards(currentAuthUser?.uid || null);
     // Premium theme (if selected on Basic+) restores only after premium
     // status is verified via Firestore — never applied optimistically.
     applyPremiumThemeIfAny(currentAuthUser?.uid || null).catch(() => {});
@@ -164,6 +183,8 @@ async function boot() {
     currentAuthUser = user;
     if (uidChanged) {
       initPremium(user?.uid || null);
+      initAchievements(user?.uid || null);
+      initRewards(user?.uid || null);
       if (user?.uid) {
         applyPremiumThemeIfAny(user.uid).catch(() => {});
         loadCrossfadeConfigForUser(user.uid).catch(() => {});
@@ -284,10 +305,12 @@ async function loadCrossfadeConfigForUser(uid) {
   setCloudBackupActive(uid, Boolean(profile?.cloudBackupEnabled));
 
   // Audio Processing mode is plan-gated (setAudioProcessingMode() itself
-  // forces non-entitled accounts back to "standard"); Clean Bass is free
-  // for everyone and defaults ON if the field has never been set.
+  // forces non-entitled accounts back to "standard"); Clean Bass and
+  // Acoustic Mode are both free for everyone and default the same way
+  // initAcousticModeFromStorage()/initCleanBassFromStorage() do locally.
   setAudioProcessingMode(profile?.audioProcessingMode || 'standard');
   setCleanBass(profile?.cleanBassEnabled === undefined ? true : Boolean(profile.cleanBassEnabled));
+  setAcousticMode(Boolean(profile?.acousticModeEnabled));
 }
 
 /**
