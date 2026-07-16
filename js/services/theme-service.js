@@ -32,13 +32,14 @@ export const PREMIUM_THEMES = {
     label: 'Crimson Velvet',
     requiredPlan: 'Basic',
     colors: {
-      primary: '#59171B',
-      secondary: '#7A2328',
-      accent: '#FED7B8',
-      background: '#0D0D0D',
-      card: '#1A1313',
+      primary: '#6A1024',
+      secondary: '#A61D3B',
+      accent: '#E8A0B7',
+      highlight: '#F2C6D4',
+      background: '#0F0A0A',
+      card: '#1A0F12',
       text: '#FFFFFF',
-      mutedText: '#C9C4C4', // "Light Gray" per spec
+      mutedText: '#C9A9B2', // soft rose-tinted gray, warmer than neutral
     },
   },
   plus: {
@@ -61,14 +62,14 @@ export const PREMIUM_THEMES = {
     label: 'Gold Elite',
     requiredPlan: 'Elite',
     colors: {
-      primary: '#1A1611',
-      secondary: '#0D0B08',
-      accent: '#FBBF24',
-      highlight: '#FDE68A',
-      background: '#0B0A08',
-      card: 'rgba(251, 191, 36, 0.06)', // matte black with a faint gold glass card
-      text: '#F5F1EC',
-      mutedText: '#C9BFA6',
+      primary: '#C9A227',
+      secondary: '#D4AF37',
+      accent: '#C9A227',
+      highlight: '#F6E7B0', // champagne gold
+      background: '#090909',
+      card: '#151515', // matte black, near-flat — gold is a border/accent only, never a fill
+      text: '#FFFFFF',
+      mutedText: '#B8B8B8', // light gray
     },
   },
 };

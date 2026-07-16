@@ -60,6 +60,7 @@ const PLAYBACK_STATE_KEY = 'playbackState';
 const EQ_PRESET_KEY = 'equalizerPreset';
 const CLEAN_BASS_KEY = 'cleanBassEnabled';
 const AUDIO_PROCESSING_KEY = 'audioProcessingMode';
+const ACOUSTIC_MODE_KEY = 'acousticModeEnabled';
 
 /**
  * Premium — Equalizer presets (Basic+). Free is always forced to
@@ -145,12 +146,65 @@ let finalLimiter = null;
 
 let currentProcessingMode = 'standard'; // 'standard' | 'enhanced' | 'studio'
 
+/* -------------------------------------------------------------------- */
+/*  Acoustic Mode (free, OFF by default) — a real, dedicated DSP        */
+/*  subchain, not a preset: Preamp -> EQ (mud cut / presence / air) ->  */
+/*  very light convolver reverb (wet/dry mix) -> gentle compressor ->   */
+/*  subtle M/S stereo widener -> transparent limiter -> master gain.    */
+/*  Spliced right after the user's 3-band Equalizer and before Clean    */
+/*  Bass, so it composes with Equalizer, Clean Bass, Enhanced/Studio    */
+/*  Audio Processing, and Crossfade rather than replacing any of them.  */
+/*  Every node is built once here and left permanently connected —      */
+/*  toggling just automates parameters back to a fully transparent      */
+/*  unity/no-op state, the same philosophy as Clean Bass/Standard       */
+/*  above, so there is never a reconnect, click, or dropout.            */
+let acousticEnabled = false;
+let acousticPreamp = null;
+let acousticEqMud = null;       // peaking ~220Hz — gently reduces muddiness
+let acousticEqPresence = null;  // peaking ~3kHz — vocal presence
+let acousticEqAir = null;       // highshelf ~10kHz — gentle "air", never harsh
+let acousticConvolver = null;   // very short, synthetic small-room impulse
+let acousticDryGain = null;
+let acousticWetGain = null;
+let acousticReverbSum = null;
+let acousticCompressor = null;
+let acousticSplitter = null;
+let acousticMidGainL = null, acousticMidGainR = null, acousticMidSum = null;
+let acousticSideGainL = null, acousticSideGainR = null, acousticSideSum = null, acousticSideWiden = null;
+let acousticReconL = null, acousticReconR = null, acousticReconLFromSide = null, acousticReconRFromSide = null;
+let acousticMerger = null;
+let acousticLimiter = null;
+let acousticMasterGain = null;
+
 // Analyser tap for the Elite Advanced Audio Visualizer — connected in
 // parallel off the final limiter (never inline in the playback chain, so
 // it can never affect audio) and only actually pulled from when a
 // visualizer is on-screen. Built here (not lazily) so it's always ready
 // the moment Elite opens the visualizer, with zero graph rewiring.
 let analyserNode = null;
+
+/**
+ * Generates a very short, synthetic "small room" impulse response for
+ * Acoustic Mode's convolver — dense, fast early reflections with a sharp
+ * decay envelope and no long smooth tail, so it reads as "a little bit
+ * of room" rather than a hall/cathedral. Built in-memory (no network
+ * fetch, no bundled asset), so it works fully offline with local music.
+ */
+function createSmallRoomImpulse(ctx) {
+  const durationSeconds = 0.32; // short decay, per spec
+  const decayExponent = 3.2;    // steep curve = dense early reflections, fast falloff
+  const length = Math.max(1, Math.floor(ctx.sampleRate * durationSeconds));
+  const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+  for (let channel = 0; channel < 2; channel++) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i++) {
+      const t = i / length;
+      const envelope = Math.pow(1 - t, decayExponent);
+      data[i] = (Math.random() * 2 - 1) * envelope;
+    }
+  }
+  return impulse;
+}
 
 function ensureAudioGraph() {
   if (audioCtx) return;
@@ -203,6 +257,60 @@ function ensureAudioGraph() {
     reconRFromSide = audioCtx.createGain(); reconRFromSide.gain.value = -1; // -side -> R
     stereoMerger = audioCtx.createChannelMerger(2);
 
+    // ---- Acoustic Mode subchain (built once, unity/no-op until enabled) ----
+    acousticPreamp = audioCtx.createGain();
+
+    acousticEqMud = audioCtx.createBiquadFilter();
+    acousticEqMud.type = 'peaking';
+    acousticEqMud.frequency.value = 220; // 150-300Hz muddiness pocket
+    acousticEqMud.Q.value = 1.0;
+
+    acousticEqPresence = audioCtx.createBiquadFilter();
+    acousticEqPresence.type = 'peaking';
+    acousticEqPresence.frequency.value = 3000; // 2-4kHz vocal presence
+    acousticEqPresence.Q.value = 1.1;
+
+    acousticEqAir = audioCtx.createBiquadFilter();
+    acousticEqAir.type = 'highshelf';
+    acousticEqAir.frequency.value = 9500; // 8-12kHz air, gentle so it never turns harsh
+
+    // Very light convolver reverb — parallel wet/dry mix rather than
+    // replacing the signal, so "wet" only ever adds a faint sense of
+    // space on top of the untouched dry path.
+    acousticConvolver = audioCtx.createConvolver();
+    acousticConvolver.normalize = true;
+    acousticConvolver.buffer = createSmallRoomImpulse(audioCtx);
+    acousticDryGain = audioCtx.createGain(); acousticDryGain.gain.value = 1;
+    acousticWetGain = audioCtx.createGain(); acousticWetGain.gain.value = 0; // 0 = off
+    acousticReverbSum = audioCtx.createGain(); acousticReverbSum.gain.value = 1;
+
+    acousticCompressor = audioCtx.createDynamicsCompressor();
+
+    // Subtle M/S stereo widener — identical technique (and identical
+    // mono-compatibility guarantee: L+R always cancels the side term
+    // regardless of widen factor) to the Enhanced/Studio network above,
+    // duplicated here so Acoustic Mode's stereo image is independently
+    // controllable and composes with whatever Audio Processing mode is
+    // also active.
+    acousticSplitter = audioCtx.createChannelSplitter(2);
+    acousticMidGainL = audioCtx.createGain(); acousticMidGainL.gain.value = 0.5;
+    acousticMidGainR = audioCtx.createGain(); acousticMidGainR.gain.value = 0.5;
+    acousticMidSum = audioCtx.createGain(); acousticMidSum.gain.value = 1;
+    acousticSideGainL = audioCtx.createGain(); acousticSideGainL.gain.value = 0.5;
+    acousticSideGainR = audioCtx.createGain(); acousticSideGainR.gain.value = -0.5;
+    acousticSideSum = audioCtx.createGain(); acousticSideSum.gain.value = 1;
+    acousticSideWiden = audioCtx.createGain(); acousticSideWiden.gain.value = 1; // 1 = no widening (off)
+    acousticReconL = audioCtx.createGain(); acousticReconL.gain.value = 1;
+    acousticReconR = audioCtx.createGain(); acousticReconR.gain.value = 1;
+    acousticReconLFromSide = audioCtx.createGain(); acousticReconLFromSide.gain.value = 1;
+    acousticReconRFromSide = audioCtx.createGain(); acousticReconRFromSide.gain.value = -1;
+    acousticMerger = audioCtx.createChannelMerger(2);
+
+    acousticLimiter = audioCtx.createDynamicsCompressor();
+    acousticMasterGain = audioCtx.createGain();
+
+    applyAcousticModeParams(); // sets every node above to its OFF/unity state
+
     // Loudness/limiter compressor — neutral (no-op) for Standard.
     processingCompressor = audioCtx.createDynamicsCompressor();
 
@@ -213,7 +321,40 @@ function ensureAudioGraph() {
     applyProcessingModeParams(); // sets processingCompressor/finalLimiter/sideWiden for 'standard'
 
     // Wire it all up.
-    sourceNode.connect(gainNode).connect(eqBass).connect(eqMid).connect(eqTreble).connect(cleanBassCompressor);
+    sourceNode.connect(gainNode).connect(eqBass).connect(eqMid).connect(eqTreble);
+
+    // ---- Acoustic Mode subchain: Preamp -> EQ -> reverb (wet/dry) ->
+    // compressor -> stereo widener -> limiter -> master gain ----
+    eqTreble.connect(acousticPreamp);
+    acousticPreamp.connect(acousticEqMud).connect(acousticEqPresence).connect(acousticEqAir);
+    acousticEqAir.connect(acousticDryGain);
+    acousticEqAir.connect(acousticConvolver);
+    acousticConvolver.connect(acousticWetGain);
+    acousticDryGain.connect(acousticReverbSum);
+    acousticWetGain.connect(acousticReverbSum);
+    acousticReverbSum.connect(acousticCompressor);
+
+    acousticCompressor.connect(acousticSplitter);
+    acousticSplitter.connect(acousticMidGainL, 0);
+    acousticSplitter.connect(acousticMidGainR, 1);
+    acousticMidGainL.connect(acousticMidSum);
+    acousticMidGainR.connect(acousticMidSum);
+    acousticSplitter.connect(acousticSideGainL, 0);
+    acousticSplitter.connect(acousticSideGainR, 1);
+    acousticSideGainL.connect(acousticSideSum);
+    acousticSideGainR.connect(acousticSideSum);
+    acousticSideSum.connect(acousticSideWiden);
+    acousticMidSum.connect(acousticReconL);
+    acousticSideWiden.connect(acousticReconLFromSide);
+    acousticReconL.connect(acousticMerger, 0, 0);
+    acousticReconLFromSide.connect(acousticMerger, 0, 0);
+    acousticMidSum.connect(acousticReconR);
+    acousticSideWiden.connect(acousticReconRFromSide);
+    acousticReconR.connect(acousticMerger, 0, 1);
+    acousticReconRFromSide.connect(acousticMerger, 0, 1);
+
+    acousticMerger.connect(acousticLimiter).connect(acousticMasterGain);
+    acousticMasterGain.connect(cleanBassCompressor);
 
     cleanBassCompressor.connect(stereoSplitter);
     stereoSplitter.connect(midGainL, 0);
@@ -415,6 +556,107 @@ export function getAudioProcessingMode() {
 export async function initAudioProcessingFromStorage() {
   const saved = await getItem(AUDIO_PROCESSING_KEY).catch(() => null);
   setAudioProcessingMode(saved || 'standard');
+}
+
+/* -------------------------------------------------------------------- */
+/*  Acoustic Mode — free for every plan, OFF by default                  */
+/* -------------------------------------------------------------------- */
+
+function applyAcousticModeParams() {
+  if (!audioCtx || !acousticPreamp) return;
+  const now = audioCtx.currentTime;
+  const t = 0.06; // shared smoothing constant — click-free, still responsive
+
+  if (acousticEnabled) {
+    // Preamp: a touch of headroom before the EQ boosts below.
+    acousticPreamp.gain.setTargetAtTime(0.9, now, t);
+
+    // EQ: reduce mud, lift presence, add gentle air. Bass (<150Hz) is
+    // untouched on purpose to preserve warmth; nothing above ~12kHz is
+    // touched so treble never turns harsh.
+    acousticEqMud.gain.setTargetAtTime(-2.5, now, t);
+    acousticEqMud.Q.setTargetAtTime(1.0, now, t);
+    acousticEqPresence.gain.setTargetAtTime(2.0, now, t);
+    acousticEqPresence.Q.setTargetAtTime(1.1, now, t);
+    acousticEqAir.gain.setTargetAtTime(1.5, now, t);
+
+    // Reverb: very light — most of the signal stays dry, only a faint
+    // sense of space is blended in. Short decay handles "no cathedral".
+    acousticDryGain.gain.setTargetAtTime(1, now, t);
+    acousticWetGain.gain.setTargetAtTime(0.07, now, t);
+
+    // Compressor: gentle — preserves dynamics, avoids pumping, just
+    // rounds off harsh peaks.
+    acousticCompressor.threshold.setTargetAtTime(-20, now, t);
+    acousticCompressor.knee.setTargetAtTime(20, now, t);
+    acousticCompressor.ratio.setTargetAtTime(1.8, now, t);
+    acousticCompressor.attack.setTargetAtTime(0.015, now, 0.02);
+    acousticCompressor.release.setTargetAtTime(0.25, now, t);
+
+    // Stereo: very subtle widening. The M/S math cancels the side term
+    // whenever L+R are summed, so this stays mono-compatible at any
+    // widen factor — 1.12 was chosen to be felt, not heard as an effect.
+    acousticSideWiden.gain.setTargetAtTime(1.12, now, 0.4);
+
+    // Limiter: transparent, fast enough to catch anything the stages
+    // above let through, well ahead of the app's own always-on ceiling.
+    acousticLimiter.threshold.setTargetAtTime(-1.2, now, t);
+    acousticLimiter.knee.setTargetAtTime(3, now, t);
+    acousticLimiter.ratio.setTargetAtTime(10, now, t);
+    acousticLimiter.attack.setTargetAtTime(0.002, now, 0.01);
+    acousticLimiter.release.setTargetAtTime(0.06, now, t);
+
+    // Master gain: small compensation so the compressor's gain reduction
+    // doesn't read as "quieter" — kept modest, the limiter (both this
+    // one and the app's final ceiling) is the actual clip safety net.
+    acousticMasterGain.gain.setTargetAtTime(1.05, now, t);
+  } else {
+    // Fully transparent / unity — identical to the signal path before
+    // Acoustic Mode existed. Nothing here is disconnected, only
+    // automated back to a no-op, so re-enabling never clicks or drops.
+    acousticPreamp.gain.setTargetAtTime(1, now, t);
+    acousticEqMud.gain.setTargetAtTime(0, now, t);
+    acousticEqPresence.gain.setTargetAtTime(0, now, t);
+    acousticEqAir.gain.setTargetAtTime(0, now, t);
+    acousticDryGain.gain.setTargetAtTime(1, now, t);
+    acousticWetGain.gain.setTargetAtTime(0, now, t);
+    acousticCompressor.threshold.setTargetAtTime(0, now, t);
+    acousticCompressor.knee.setTargetAtTime(0, now, t);
+    acousticCompressor.ratio.setTargetAtTime(1, now, t);
+    acousticCompressor.attack.setTargetAtTime(0.02, now, 0.02);
+    acousticCompressor.release.setTargetAtTime(0.05, now, t);
+    acousticSideWiden.gain.setTargetAtTime(1, now, 0.4);
+    acousticLimiter.threshold.setTargetAtTime(0, now, t);
+    acousticLimiter.knee.setTargetAtTime(0, now, t);
+    acousticLimiter.ratio.setTargetAtTime(1, now, t);
+    acousticLimiter.attack.setTargetAtTime(0.02, now, 0.01);
+    acousticLimiter.release.setTargetAtTime(0.05, now, t);
+    acousticMasterGain.gain.setTargetAtTime(1, now, t);
+  }
+}
+
+/**
+ * Toggles Acoustic Mode. Free for every plan — this is an audio-quality
+ * feature, not a gated one. Composes with the Equalizer, Clean Bass,
+ * Audio Processing mode, and Crossfade, since it's simply spliced into
+ * the same always-connected graph rather than replacing any stage.
+ */
+export function setAcousticMode(enabled) {
+  acousticEnabled = Boolean(enabled);
+  setItem(ACOUSTIC_MODE_KEY, acousticEnabled).catch(() => {});
+  ensureAudioGraph();
+  applyAcousticModeParams();
+  return acousticEnabled;
+}
+
+export function getAcousticMode() {
+  return acousticEnabled;
+}
+
+/** Loads the saved Acoustic Mode preference (default OFF) — call once at boot. */
+export async function initAcousticModeFromStorage() {
+  const saved = await getItem(ACOUSTIC_MODE_KEY).catch(() => null);
+  setAcousticMode(Boolean(saved));
 }
 
 async function resumeAudioGraphIfNeeded() {
