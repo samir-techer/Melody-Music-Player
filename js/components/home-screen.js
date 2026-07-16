@@ -16,6 +16,7 @@ import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
 import { getCurrentUser } from '../services/auth-service.js';
 import { getEffectivePlan } from '../services/premium-service.js';
+import { getMelodyPoints } from '../services/achievements-service.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums' },
@@ -71,6 +72,7 @@ export async function renderHomeScreen() {
           ${themeIcon(currentThemeMode)}
         </button>
       </div>
+      <button class="mp-pill" id="mp-pill" type="button" title="View Achievements">⭐ ${getMelodyPoints().toLocaleString()} MP</button>
     </header>
 
     <div class="home-search" role="search" id="home-search-trigger">
@@ -121,6 +123,9 @@ export async function renderHomeScreen() {
     const newMode = await toggleTheme();
     themeBtn.innerHTML = themeIcon(newMode);
   });
+
+  // ---------- Melody Points quick-glance ----------
+  el.querySelector('#mp-pill').addEventListener('click', () => navigate('achievements'));
 
   // ---------- Import wiring ----------
   const fileInput = el.querySelector('#import-file-input');

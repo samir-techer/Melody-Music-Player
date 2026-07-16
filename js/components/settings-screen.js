@@ -34,9 +34,13 @@ import {
 import {
   setCrossfadeConfig, getCrossfadeConfig, EQ_PRESETS, setEqualizerPreset, getEqualizerPreset,
   AUDIO_PROCESSING_MODES, setAudioProcessingMode, getAudioProcessingMode, setCleanBass, getCleanBass,
+  setAcousticMode, getAcousticMode,
 } from '../services/player-service.js';
+import { showInfoDialog } from '../utils/confirm-dialog.js';
 import { setCloudBackupActive } from '../services/cloud-backup-service.js';
 import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
+import { isThemeUnlockedViaMP } from '../services/rewards-service.js';
+import { recordThemeApplied, getMelodyPoints } from '../services/achievements-service.js';
 import { doc, setDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { db } from '../services/firebase-config.js';
 
@@ -85,6 +89,7 @@ export async function renderSettingsScreen() {
   const nicknameStatus = authUser ? await getNicknameChangeStatus(authUser.uid) : { used: 0, remaining: 0, limit: 2 };
   const processingMode = getAudioProcessingMode();
   const cleanBassOn = getCleanBass();
+  const acousticOn = getAcousticMode();
 
   const el = document.createElement('div');
   el.className = 'screen settings-screen has-shell';
@@ -105,6 +110,10 @@ export async function renderSettingsScreen() {
           <span class="settings-value">
             ${effectivePlan !== 'Free' ? `<span class="premium-badge plan-${effectivePlan.toLowerCase()}">⭐ ${escapeHtml(effectivePlan)}</span>` : escapeHtml(profile?.premiumPlan || 'Free')}
           </span>
+        </div>
+        <div class="settings-row">
+          <span>⭐ Melody Points</span>
+          <span class="settings-value">${getMelodyPoints().toLocaleString()} MP</span>
         </div>
         <div class="settings-row">
           <span>Role</span>
@@ -158,6 +167,20 @@ export async function renderSettingsScreen() {
     </section>
 
     <section class="section">
+      <div class="section-heading"><h2>Achievements</h2></div>
+      <div class="settings-list">
+        <button class="settings-row settings-row-link" id="open-achievements" type="button">
+          <span>🏆 Achievements</span>
+          <span class="settings-value">${getMelodyPoints().toLocaleString()} MP &rsaquo;</span>
+        </button>
+        <button class="settings-row settings-row-link" id="open-rewards-store" type="button">
+          <span>🎁 Rewards Store</span>
+          <span class="settings-value">&rsaquo;</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="section-heading"><h2>Appearance</h2></div>
       <div class="segmented" id="theme-picker" role="tablist">
         ${THEME_OPTIONS.map((opt) => `
@@ -172,7 +195,7 @@ export async function renderSettingsScreen() {
           <span>Default</span>
         </button>
         ${Object.values(PREMIUM_THEMES).map((theme) => {
-          const unlocked = hasPremiumAccess(theme.requiredPlan);
+          const unlocked = hasPremiumAccess(theme.requiredPlan) || isThemeUnlockedViaMP(theme.key);
           return `
           <button type="button" class="theme-swatch theme-swatch-${theme.key} ${selectedPremiumTheme === theme.key && unlocked ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-theme-key="${theme.key}" data-required-plan="${theme.requiredPlan}">
             <div class="theme-swatch-preview">${unlocked ? '' : '<span class="lock-icon">🔒</span>'}</div>
@@ -235,6 +258,16 @@ export async function renderSettingsScreen() {
       </p>
 
       <div class="settings-list" style="margin-top: var(--space-3);">
+        <div class="settings-row-toggle">
+          <div class="settings-row-label">
+            <span>Acoustic Mode <button type="button" class="info-dot" id="acoustic-mode-info" aria-label="What is Acoustic Mode?">ⓘ</button></span>
+            <p class="settings-hint-inline">Simulates a natural acoustic listening environment using real-time digital audio processing — warmer and more spacious, without changing the original file.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-acoustic-mode" ${acousticOn ? 'checked' : ''} />
+            <span class="toggle-track"><span class="toggle-thumb-switch"></span></span>
+          </label>
+        </div>
         <div class="settings-row-toggle">
           <div class="settings-row-label">
             <span>Clean Bass</span>
@@ -508,14 +541,15 @@ export async function renderSettingsScreen() {
     const themeKey = swatch.dataset.themeKey || null;
     const requiredPlan = swatch.dataset.requiredPlan;
 
-    if (themeKey && !hasPremiumAccess(requiredPlan)) {
-      showUpgradeDialog(`Upgrade to ${requiredPlan} to unlock Premium Themes.`, requiredPlan);
+    if (themeKey && !hasPremiumAccess(requiredPlan) && !isThemeUnlockedViaMP(themeKey)) {
+      showUpgradeDialog(`Upgrade to ${requiredPlan} (or unlock it with Melody Points in the Rewards Store) to use Premium Themes.`, requiredPlan);
       return;
     }
 
     try {
       await setSelectedPremiumTheme(authUser.uid, themeKey);
       el.querySelectorAll('.theme-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
+      if (themeKey) recordThemeApplied();
     } catch (err) {
       console.error('[Melody] Theme selection failed.', err);
       const { showToast } = await import('../utils/toast.js');
@@ -618,6 +652,25 @@ export async function renderSettingsScreen() {
   });
 
   /* ---------------------------------------------------------------- */
+  /*  Acoustic Mode — free for every plan, default OFF                   */
+  /* ---------------------------------------------------------------- */
+  el.querySelector('#toggle-acoustic-mode').addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    setAcousticMode(enabled);
+    if (authUser) {
+      await setDoc(doc(db, 'users', authUser.uid), { acousticModeEnabled: enabled }, { merge: true });
+    }
+  });
+
+  el.querySelector('#acoustic-mode-info').addEventListener('click', () => {
+    showInfoDialog({
+      title: '🎧 Acoustic Mode',
+      message: 'Acoustic Mode simulates the warmth and spaciousness of listening in a natural acoustic environment using real-time audio processing. It enhances the listening experience but does not convert songs into acoustic recordings or change the original music file.',
+      buttonLabel: 'Got it',
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
   /*  Clean Bass — free for every plan, default ON                      */
   /* ---------------------------------------------------------------- */
   el.querySelector('#toggle-clean-bass').addEventListener('change', async (e) => {
@@ -631,6 +684,16 @@ export async function renderSettingsScreen() {
   el.querySelector('#open-listening-insights')?.addEventListener('click', async () => {
     const { navigate } = await import('../utils/router.js');
     navigate('stats');
+  });
+
+  el.querySelector('#open-achievements')?.addEventListener('click', async () => {
+    const { navigate } = await import('../utils/router.js');
+    navigate('achievements');
+  });
+
+  el.querySelector('#open-rewards-store')?.addEventListener('click', async () => {
+    const { navigate } = await import('../utils/router.js');
+    navigate('rewards-store');
   });
 
   el.querySelector('#priority-support-btn')?.addEventListener('click', async () => {
