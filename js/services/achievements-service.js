@@ -286,7 +286,7 @@ export function initAchievements(uid) {
 /** Subscribe to MP/progress changes. Immediately called with current state. */
 export function subscribeAchievements(listener) {
   changeListeners.add(listener);
-  listener(getSnapshot());
+  listener(getAchievementsSnapshot());
   return () => changeListeners.delete(listener);
 }
 
