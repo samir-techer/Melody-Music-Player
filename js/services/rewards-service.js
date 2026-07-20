@@ -30,12 +30,22 @@
 import { doc, onSnapshot, setDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import { spendMelodyPoints } from './achievements-service.js';
-import { PREMIUM_THEMES } from './theme-service.js';
+import {
+  PREMIUM_THEMES, GRADIENT_COLLECTION_KEYS, setMpUnlockedThemeKeys, refreshPremiumThemeForUid,
+} from './theme-service.js';
 
 const HISTORY_LIMIT = 50;
 const COUPON_VALID_DAYS = 30;
 
-export const THEME_PRICES = { basic: 500, plus: 700, elite: 1200 };
+export const THEME_PRICES = {
+  basic: 500, plus: 700, elite: 1200,
+  // Gradient Collection — Midnight Nebula has no entry here on purpose:
+  // it ships free with Elite and the person explicitly wants it to stay
+  // exclusive, not purchasable with MP.
+  'pink-blossom': 500,
+  'neon-orchid': 750,
+  'aurora-mint': 750,
+};
 
 export const DISCOUNT_TIERS = [
   { percent: 10, mp: 300 },
@@ -90,6 +100,7 @@ export function initRewards(uid) {
 
   if (!uid) {
     state = defaultState();
+    setMpUnlockedThemeKeys([]);
     notify();
     return;
   }
@@ -101,6 +112,12 @@ export function initRewards(uid) {
       state.mpUnlockedThemes = Array.isArray(data.mpUnlockedThemes) ? data.mpUnlockedThemes : [];
       state.discountCoupons = Array.isArray(data.discountCoupons) ? data.discountCoupons : [];
       state.rewardHistory = Array.isArray(data.rewardHistory) ? data.rewardHistory : [];
+      // theme-service.js can't import this module (it's the other way
+      // around, for PREMIUM_THEMES) — mirror the unlock list into its
+      // cache directly, then let it re-evaluate the currently-applied
+      // theme in case an MP purchase just unlocked it.
+      setMpUnlockedThemeKeys(state.mpUnlockedThemes);
+      refreshPremiumThemeForUid(uid).catch(() => {});
       notify();
     },
     (err) => console.error('[Melody] Rewards: live listener failed.', err),
@@ -113,11 +130,6 @@ export function subscribeRewards(listener) {
   return () => listeners.delete(listener);
 }
 
-/** True if this theme is usable regardless of premiumPlan — settings-screen.js checks this too. */
-export function isThemeUnlockedViaMP(themeKey) {
-  return state.mpUnlockedThemes.includes(themeKey);
-}
-
 function activeCoupons() {
   const now = Date.now();
   return state.discountCoupons.filter((c) => !c.redeemed && c.expiresAt > now);
@@ -125,12 +137,23 @@ function activeCoupons() {
 
 export function getRewardsSnapshot() {
   return {
-    themes: Object.values(PREMIUM_THEMES).map((t) => ({
+    themes: Object.values(PREMIUM_THEMES).filter((t) => !t.collection).map((t) => ({
       key: t.key,
       label: t.label,
       price: THEME_PRICES[t.key] || 999,
       unlocked: state.mpUnlockedThemes.includes(t.key),
     })),
+    gradientThemes: GRADIENT_COLLECTION_KEYS.map((key) => {
+      const t = PREMIUM_THEMES[key];
+      return {
+        key: t.key,
+        label: t.label,
+        gradient: t.gradient,
+        price: THEME_PRICES[key] || null, // null = not for sale (Midnight Nebula)
+        eliteExclusive: !t.mpOnly,
+        owned: t.mpOnly ? state.mpUnlockedThemes.includes(key) : null, // null = "owned" isn't the right concept, plan-gated instead
+      };
+    }),
     discountTiers: DISCOUNT_TIERS,
     activeCoupons: activeCoupons(),
     expiredOrUsedCoupons: state.discountCoupons.filter((c) => c.redeemed || c.expiresAt <= Date.now()),
@@ -149,6 +172,7 @@ export function redeemTheme(themeKey) {
 
   state.mpUnlockedThemes.push(themeKey);
   state.rewardHistory.push({ type: 'theme', label: theme.label, mp: price, redeemedAt: Date.now() });
+  setMpUnlockedThemeKeys(state.mpUnlockedThemes);
   notify();
   persist();
   return { success: true };

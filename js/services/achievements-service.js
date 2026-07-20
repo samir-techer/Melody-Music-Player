@@ -271,7 +271,17 @@ export function initAchievements(uid) {
       const data = snap.data() || {};
       applyingRemote = true;
       state.melodyPoints = data.melodyPoints || 0;
-      state.completed = new Set(data.completedAchievements || []);
+      // UNION, never replace: "completed" is monotonic — once true, always
+      // true. scheduleSave() is debounced, so ANY other write to this same
+      // users/{uid} doc (rewards-service, premium-service, stats, theme
+      // selection, ...) can deliver an onSnapshot echo that still reflects
+      // our own achievement unlock's pre-save state. Replacing the set
+      // wholesale would silently un-complete an achievement we'd already
+      // unlocked locally; the very next evaluate() tick would then see the
+      // metric still past its threshold and award it all over again —
+      // which is exactly what made the unlock popup look "stuck forever"
+      // (it wasn't stuck, it was re-firing in a loop).
+      state.completed = new Set([...state.completed, ...(data.completedAchievements || [])]);
       state.counters = { ...defaultState().counters, ...(data.achievementCounters || {}) };
       state.streak = { ...defaultState().streak, ...(data.streak || {}) };
       state.lastDailyRewardDate = data.lastDailyRewardDate || null;

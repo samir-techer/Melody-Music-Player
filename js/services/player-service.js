@@ -164,6 +164,7 @@ let acousticEqMud = null;       // peaking ~220Hz — gently reduces muddiness
 let acousticEqPresence = null;  // peaking ~3kHz — vocal presence
 let acousticEqAir = null;       // highshelf ~10kHz — gentle "air", never harsh
 let acousticConvolver = null;   // very short, synthetic small-room impulse
+let acousticConvolverConnected = false; // see the CPU-load note in applyAcousticModeParams()
 let acousticDryGain = null;
 let acousticWetGain = null;
 let acousticReverbSum = null;
@@ -328,8 +329,22 @@ function ensureAudioGraph() {
     eqTreble.connect(acousticPreamp);
     acousticPreamp.connect(acousticEqMud).connect(acousticEqPresence).connect(acousticEqAir);
     acousticEqAir.connect(acousticDryGain);
-    acousticEqAir.connect(acousticConvolver);
-    acousticConvolver.connect(acousticWetGain);
+    // NOTE: the convolver is deliberately NOT connected here. Real-time
+    // convolution is by far the most CPU-expensive node in this whole
+    // graph, and every other node in this file follows an "always
+    // connected, just automate params to neutral when off" philosophy
+    // precisely because that costs nothing extra when idle — that isn't
+    // true for a ConvolverNode, which keeps doing full FFT-based
+    // convolution on its input regardless of how low its output is
+    // mixed afterward. Leaving it permanently wired (as an earlier
+    // version of this file did) meant EVERY session paid that cost even
+    // with Acoustic Mode off, which was fine with the CPU headroom of an
+    // unlocked screen but was enough, combined with mobile OSes
+    // throttling CPU while the screen is locked, to cause real-time
+    // audio-thread underruns — heard as distortion that cleared up the
+    // moment the screen unlocked and full CPU was available again.
+    // applyAcousticModeParams() below connects/disconnects it as
+    // Acoustic Mode is actually toggled on/off.
     acousticDryGain.connect(acousticReverbSum);
     acousticWetGain.connect(acousticReverbSum);
     acousticReverbSum.connect(acousticCompressor);
@@ -566,6 +581,29 @@ function applyAcousticModeParams() {
   if (!audioCtx || !acousticPreamp) return;
   const now = audioCtx.currentTime;
   const t = 0.06; // shared smoothing constant — click-free, still responsive
+
+  // Splice the convolver in/out of the live graph — see the note at its
+  // construction site for why this one node specifically isn't left
+  // permanently connected like everything else here. Connecting happens
+  // immediately (silent, since wetGain still ramps up from 0 right
+  // after); disconnecting is deferred until the wetGain ramp below has
+  // actually settled to ~silence, so we're never abruptly cutting an
+  // audible reverb tail mid-decay.
+  if (acousticEnabled && !acousticConvolverConnected) {
+    acousticEqAir.connect(acousticConvolver);
+    acousticConvolver.connect(acousticWetGain);
+    acousticConvolverConnected = true;
+  } else if (!acousticEnabled && acousticConvolverConnected) {
+    const tokenAtDisable = acousticEnabled;
+    setTimeout(() => {
+      // Only actually disconnect if nothing re-enabled it in the meantime.
+      if (acousticEnabled === tokenAtDisable && acousticConvolverConnected) {
+        acousticEqAir.disconnect(acousticConvolver);
+        acousticConvolver.disconnect(acousticWetGain);
+        acousticConvolverConnected = false;
+      }
+    }, 400);
+  }
 
   if (acousticEnabled) {
     // Preamp: a touch of headroom before the EQ boosts below.
@@ -1317,6 +1355,14 @@ audio.addEventListener('pause', persistState);
 window.addEventListener('pagehide', persistState);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') persistState();
+  // Some mobile browsers auto-suspend the AudioContext when the screen
+  // locks/tab backgrounds, even mid-playback via Media Session. If that
+  // happens while audio should still be flowing, resume it immediately
+  // rather than leaving playback silently degraded until the next
+  // explicit play() call (which might be minutes away, on a locked phone).
+  if (audioCtx && audioCtx.state === 'suspended' && !audio.paused) {
+    audioCtx.resume().catch((err) => console.warn('[Melody] Player: background AudioContext resume failed.', err));
+  }
 });
 
 /**
