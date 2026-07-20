@@ -10,13 +10,26 @@
 
 import { navigate, currentRoute } from '../utils/router.js';
 import { subscribe, togglePlay } from '../services/player-service.js';
+import { isAdmin } from '../services/premium-service.js';
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: '⌂' },
   { key: 'search', label: 'Search', icon: '⌕' },
   { key: 'library', label: 'Library', icon: '▤' },
   { key: 'settings', label: 'Settings', icon: '⚙' },
 ];
+
+// SoundCloud is an admin-only tool (see app.js's route guard and
+// soundcloud-config.js's note on why) — it only appears in the nav for
+// admin accounts, never shipped to regular Melody users.
+function getNavItems() {
+  if (!isAdmin()) return BASE_NAV_ITEMS;
+  return [
+    ...BASE_NAV_ITEMS.slice(0, 3),
+    { key: 'soundcloud', label: 'SoundCloud', icon: '☁' },
+    BASE_NAV_ITEMS[3],
+  ];
+}
 
 /**
  * Appends the bottom nav + mini player to `screenEl` and wires up all
@@ -26,7 +39,7 @@ const NAV_ITEMS = [
 export function attachShell(screenEl, activeKey) {
   const navHtml = `
     <nav class="bottom-nav" aria-label="Primary">
-      ${NAV_ITEMS.map((item) => `
+      ${getNavItems().map((item) => `
         <button class="${item.key === activeKey ? 'active' : ''}" data-nav="${item.key}">
           <span class="icon" aria-hidden="true">${item.icon}</span>${item.label}
         </button>
