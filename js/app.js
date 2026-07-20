@@ -47,6 +47,10 @@ import { renderAdminScreen } from './components/admin-screen.js';
 import { renderStatsScreen } from './components/stats-screen.js';
 import { renderAchievementsScreen } from './components/achievements-screen.js';
 import { renderRewardsScreen } from './components/rewards-screen.js';
+import { renderSoundCloudScreen } from './components/soundcloud-screen.js';
+import { renderSoundCloudSearchScreen } from './components/soundcloud-search-screen.js';
+import { renderSoundCloudArtistScreen } from './components/soundcloud-artist-screen.js';
+import { renderSoundCloudPlaylistScreen } from './components/soundcloud-playlist-screen.js';
 import { initStats } from './services/stats-service.js';
 import { initAchievements, subscribeAchievementUnlocks } from './services/achievements-service.js';
 import { initRewards } from './services/rewards-service.js';
@@ -99,6 +103,18 @@ async function boot() {
       return isAdmin();
     },
   });
+
+  // SoundCloud — admin-only (see soundcloud-config.js for why). Same
+  // live, never-cached guard as 'admin' above; all four routes share it
+  // since any of them could be reached directly (e.g. a deep link).
+  const soundCloudGuard = async () => {
+    await waitForPremiumReady();
+    return isAdmin();
+  };
+  registerRoute('soundcloud', renderSoundCloudScreen, { requiresAuth: true, guard: soundCloudGuard });
+  registerRoute('soundcloud-search', renderSoundCloudSearchScreen, { requiresAuth: true, guard: soundCloudGuard });
+  registerRoute('soundcloud-artist', renderSoundCloudArtistScreen, { requiresAuth: true, guard: soundCloudGuard });
+  registerRoute('soundcloud-playlist', renderSoundCloudPlaylistScreen, { requiresAuth: true, guard: soundCloudGuard });
 
   registerRoute('stats', renderStatsScreen, {
     requiresAuth: true,
