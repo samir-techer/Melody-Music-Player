@@ -380,3 +380,246 @@
   border-color: var(--premium-primary, #C9A227);
   box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.18);
 }
+
+/* ==========================================================================
+   GRADIENT COLLECTION — sold in the MP Store (see rewards-service.js).
+   Pink Blossom / Neon Orchid / Aurora Mint share one shared treatment
+   below (they all just point --premium-gradient-* at different stops);
+   Midnight Nebula, the Elite-exclusive, gets its own dedicated block
+   further down for the dark-glass/soft-glow look it needs.
+
+   Per the brief, the gradient is used as an ACCENT — buttons, progress
+   fill, selected states, card wash, search-bar focus, slider thumbs —
+   not as a full-screen background fill, so text contrast against the
+   dark base stays exactly as strong as every other theme.
+   ========================================================================== */
+[data-premium-theme="pink-blossom"],
+[data-premium-theme="neon-orchid"],
+[data-premium-theme="aurora-mint"] {
+  --color-bg:             var(--premium-background);
+  --color-bg-secondary:   var(--premium-background);
+  --color-card:           var(--premium-card);
+  --color-text-primary:   var(--premium-text, #FFFFFF);
+  --color-text-secondary: var(--premium-muted-text);
+  --color-accent:         var(--premium-primary);
+
+  --color-accent-soft:    color-mix(in srgb, var(--premium-primary) 18%, transparent);
+  --color-accent-softer:  color-mix(in srgb, var(--premium-primary) 7%, transparent);
+  --color-divider:        color-mix(in srgb, var(--premium-gradient-start, #FFE5F1) 14%, transparent);
+  --color-overlay:        rgba(0, 0, 0, 0.7);
+  --color-heart:          var(--premium-gradient-end, var(--premium-primary));
+
+  color-scheme: dark;
+}
+
+/* Cards: dark base with a soft gradient wash bleeding from one corner —
+   "background highlights", not a full gradient fill, so text stays
+   perfectly readable. */
+[data-premium-theme="pink-blossom"] .card,
+[data-premium-theme="pink-blossom"] .settings-list,
+[data-premium-theme="pink-blossom"] .admin-card,
+[data-premium-theme="pink-blossom"] .plan-card,
+[data-premium-theme="neon-orchid"] .card,
+[data-premium-theme="neon-orchid"] .settings-list,
+[data-premium-theme="neon-orchid"] .admin-card,
+[data-premium-theme="neon-orchid"] .plan-card,
+[data-premium-theme="aurora-mint"] .card,
+[data-premium-theme="aurora-mint"] .settings-list,
+[data-premium-theme="aurora-mint"] .admin-card,
+[data-premium-theme="aurora-mint"] .plan-card {
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--premium-gradient-mid, var(--premium-primary)) 16%, transparent), transparent 60%),
+    var(--color-card);
+  border: 1px solid color-mix(in srgb, var(--premium-gradient-start, #FFE5F1) 14%, transparent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+[data-premium-theme="pink-blossom"] .btn-primary,
+[data-premium-theme="neon-orchid"] .btn-primary,
+[data-premium-theme="aurora-mint"] .btn-primary {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, var(--premium-gradient-start), var(--premium-gradient-mid, var(--premium-gradient-end)), var(--premium-gradient-end));
+  border: none;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--premium-gradient-end) 35%, transparent);
+}
+
+/* Progress / seek bar: the full gradient, so dragging it reads as "the
+   theme", not just a colored line. */
+[data-premium-theme="pink-blossom"] #seek-bar,
+[data-premium-theme="neon-orchid"] #seek-bar,
+[data-premium-theme="aurora-mint"] #seek-bar {
+  background: linear-gradient(90deg, var(--premium-gradient-start), var(--premium-gradient-mid, var(--premium-gradient-end)), var(--premium-gradient-end));
+}
+[data-premium-theme="pink-blossom"] #seek-bar::-webkit-slider-thumb, [data-premium-theme="pink-blossom"] #seek-bar::-moz-range-thumb,
+[data-premium-theme="neon-orchid"] #seek-bar::-webkit-slider-thumb, [data-premium-theme="neon-orchid"] #seek-bar::-moz-range-thumb,
+[data-premium-theme="aurora-mint"] #seek-bar::-webkit-slider-thumb, [data-premium-theme="aurora-mint"] #seek-bar::-moz-range-thumb {
+  background: #FFFFFF;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--premium-gradient-end) 55%, transparent);
+}
+[data-premium-theme="pink-blossom"] input[type="range"],
+[data-premium-theme="neon-orchid"] input[type="range"],
+[data-premium-theme="aurora-mint"] input[type="range"] {
+  accent-color: var(--premium-primary);
+}
+[data-premium-theme="pink-blossom"] .toggle-switch input:checked + .toggle-track,
+[data-premium-theme="neon-orchid"] .toggle-switch input:checked + .toggle-track,
+[data-premium-theme="aurora-mint"] .toggle-switch input:checked + .toggle-track {
+  background: linear-gradient(100deg, var(--premium-gradient-start), var(--premium-gradient-end));
+}
+
+/* Selected icons / active states pick up the gradient's most saturated
+   stop as a solid color — a true multi-stop gradient on small glyphs
+   just reads as noise. */
+[data-premium-theme="pink-blossom"] .bottom-nav button.active,
+[data-premium-theme="pink-blossom"] .eq-preset-chip.active,
+[data-premium-theme="pink-blossom"] .favorite-btn.is-favorite,
+[data-premium-theme="neon-orchid"] .bottom-nav button.active,
+[data-premium-theme="neon-orchid"] .eq-preset-chip.active,
+[data-premium-theme="neon-orchid"] .favorite-btn.is-favorite,
+[data-premium-theme="aurora-mint"] .bottom-nav button.active,
+[data-premium-theme="aurora-mint"] .eq-preset-chip.active,
+[data-premium-theme="aurora-mint"] .favorite-btn.is-favorite {
+  color: var(--premium-gradient-end, var(--premium-primary));
+}
+[data-premium-theme="pink-blossom"] .eq-preset-chip.active,
+[data-premium-theme="neon-orchid"] .eq-preset-chip.active,
+[data-premium-theme="aurora-mint"] .eq-preset-chip.active {
+  background: transparent;
+  border-color: var(--premium-gradient-end, var(--premium-primary));
+}
+[data-premium-theme="pink-blossom"] .bottom-nav button.active { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--premium-gradient-end) 45%, transparent)); }
+[data-premium-theme="neon-orchid"] .bottom-nav button.active { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--premium-gradient-end) 45%, transparent)); }
+[data-premium-theme="aurora-mint"] .bottom-nav button.active { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--premium-gradient-end) 45%, transparent)); }
+
+[data-premium-theme="pink-blossom"] .vinyl-disc, [data-premium-theme="pink-blossom"] .album-art,
+[data-premium-theme="neon-orchid"] .vinyl-disc, [data-premium-theme="neon-orchid"] .album-art,
+[data-premium-theme="aurora-mint"] .vinyl-disc, [data-premium-theme="aurora-mint"] .album-art {
+  box-shadow: 0 0 32px color-mix(in srgb, var(--premium-gradient-end) 28%, transparent), var(--shadow-lg);
+}
+
+[data-premium-theme="pink-blossom"] .library-search-bar:focus-within,
+[data-premium-theme="neon-orchid"] .library-search-bar:focus-within,
+[data-premium-theme="aurora-mint"] .library-search-bar:focus-within {
+  border-color: var(--premium-gradient-mid, var(--premium-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--premium-gradient-mid, var(--premium-primary)) 18%, transparent);
+}
+
+/* Neon Orchid only: a slow, subtle animated gradient sweep on the two
+   highest-visibility surfaces (CTA button, seek bar) — cheap
+   background-position animation, no layout/paint thrashing, so it never
+   costs FPS or battery. */
+@keyframes melody-gradient-sweep {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+[data-premium-theme="neon-orchid"] .btn-primary,
+[data-premium-theme="neon-orchid"] #seek-bar {
+  background-size: 200% 200%;
+  animation: melody-gradient-sweep 8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-premium-theme="neon-orchid"] .btn-primary,
+  [data-premium-theme="neon-orchid"] #seek-bar { animation: none; }
+}
+
+/* ==========================================================================
+   GRADIENT COLLECTION — "Midnight Nebula" (Elite exclusive)
+   Applied via [data-premium-theme="midnight-nebula"]. Dark glass cards,
+   a soft (deliberately restrained) purple glow, and a violet-to-void
+   gradient reserved for buttons/progress/selected states — the same
+   "gradient as accent, not as wallpaper" rule as the rest of the
+   collection, just dressed up for Elite. "Avoid excessive glow" per the
+   brief, so every glow below is a low-opacity, single soft shadow layer
+   — never stacked, never neon.
+   ========================================================================== */
+[data-premium-theme="midnight-nebula"] {
+  --color-bg:             var(--premium-background, #010030);
+  --color-bg-secondary:   #05002A;
+  --color-card:           var(--premium-card);
+  --color-text-primary:   var(--premium-text, #FFFFFF);
+  --color-text-secondary: var(--premium-muted-text, #B7ADDC);
+  --color-accent:         var(--premium-accent, #B89CFF);
+
+  --color-accent-soft:    rgba(184, 156, 255, 0.14);
+  --color-accent-softer:  rgba(184, 156, 255, 0.05);
+  --color-divider:        rgba(184, 156, 255, 0.14);
+  --color-overlay:        rgba(1, 0, 20, 0.75);
+  --color-heart:          var(--premium-accent, #B89CFF);
+
+  color-scheme: dark;
+}
+
+/* Dark glass cards — translucent violet-black, blurred, with a single
+   restrained glow, not a stack of them. */
+[data-premium-theme="midnight-nebula"] .card,
+[data-premium-theme="midnight-nebula"] .settings-list,
+[data-premium-theme="midnight-nebula"] .admin-card,
+[data-premium-theme="midnight-nebula"] .plan-card {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(114, 38, 255, 0.10), transparent 60%),
+    rgba(9, 2, 40, 0.6);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(184, 156, 255, 0.16);
+  box-shadow: 0 14px 34px rgba(1, 0, 30, 0.55), 0 0 22px rgba(114, 38, 255, 0.10);
+}
+
+/* Elegant gradient buttons. */
+[data-premium-theme="midnight-nebula"] .btn-primary {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, var(--premium-primary, #7226FF), var(--premium-secondary, #160078));
+  border: 1px solid rgba(184, 156, 255, 0.3);
+  box-shadow: 0 6px 20px rgba(114, 38, 255, 0.28);
+}
+
+/* Premium sliders. */
+[data-premium-theme="midnight-nebula"] input[type="range"] {
+  accent-color: var(--premium-accent, #B89CFF);
+}
+[data-premium-theme="midnight-nebula"] #seek-bar {
+  background: linear-gradient(90deg, var(--premium-primary, #7226FF), var(--premium-accent, #B89CFF));
+}
+[data-premium-theme="midnight-nebula"] #seek-bar::-webkit-slider-thumb,
+[data-premium-theme="midnight-nebula"] #seek-bar::-moz-range-thumb {
+  background: var(--premium-accent, #B89CFF);
+  box-shadow: 0 0 8px rgba(184, 156, 255, 0.5);
+}
+[data-premium-theme="midnight-nebula"] .toggle-switch input:checked + .toggle-track {
+  background: linear-gradient(100deg, var(--premium-primary, #7226FF), var(--premium-secondary, #160078));
+}
+
+/* Modern navigation bar: dark glass, soft violet glow only on the
+   active tab. */
+[data-premium-theme="midnight-nebula"] .bottom-nav {
+  background: rgba(5, 0, 30, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(184, 156, 255, 0.14);
+}
+[data-premium-theme="midnight-nebula"] .bottom-nav button.active,
+[data-premium-theme="midnight-nebula"] .eq-preset-chip.active,
+[data-premium-theme="midnight-nebula"] .favorite-btn.is-favorite {
+  color: var(--premium-accent, #B89CFF);
+}
+[data-premium-theme="midnight-nebula"] .bottom-nav button.active {
+  filter: drop-shadow(0 0 5px rgba(184, 156, 255, 0.45));
+}
+[data-premium-theme="midnight-nebula"] .eq-preset-chip.active {
+  background: transparent;
+  border-color: var(--premium-accent, #B89CFF);
+}
+
+[data-premium-theme="midnight-nebula"] .vinyl-disc {
+  background: radial-gradient(circle at 40% 35%, #2A1F52 0%, #050018 70%);
+  border: 1px solid rgba(184, 156, 255, 0.4);
+  box-shadow: 0 0 24px rgba(114, 38, 255, 0.18), var(--shadow-md);
+}
+[data-premium-theme="midnight-nebula"] .album-art {
+  box-shadow: 0 0 22px rgba(114, 38, 255, 0.16), var(--shadow-lg);
+}
+
+[data-premium-theme="midnight-nebula"] .library-search-bar:focus-within {
+  border-color: var(--premium-accent, #B89CFF);
+  box-shadow: 0 0 0 3px rgba(184, 156, 255, 0.16);
+}

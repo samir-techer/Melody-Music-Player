@@ -690,15 +690,29 @@
   font-size: var(--text-md);
 }
 .theme-swatch-basic .theme-swatch-preview {
-  background: linear-gradient(135deg, #59171B 0%, #7A2328 55%, #0D0D0D 100%);
+  background: linear-gradient(135deg, #6A1024 0%, #A61D3B 55%, #0F0A0A 100%);
 }
 .theme-swatch-plus .theme-swatch-preview {
   background: linear-gradient(135deg, #002147 0%, #08182F 55%, #D2B48C 100%);
 }
 .theme-swatch-elite .theme-swatch-preview {
-  background: linear-gradient(135deg, #0B0A08 0%, #1A1611 55%, #C9A227 100%);
+  background: linear-gradient(135deg, #090909 0%, #151515 55%, #C9A227 100%);
 }
 .theme-swatch-default .theme-swatch-preview { background: var(--color-bg-secondary); }
+
+/* Gradient Collection swatches — the real gradient stops, not an approximation. */
+.theme-swatch-pink-blossom .theme-swatch-preview {
+  background: linear-gradient(135deg, #FFE5F1 0%, #F042FF 100%);
+}
+.theme-swatch-neon-orchid .theme-swatch-preview {
+  background: linear-gradient(160deg, #FFE5F1 0%, #F042FF 55%, #7226FF 100%);
+}
+.theme-swatch-aurora-mint .theme-swatch-preview {
+  background: linear-gradient(160deg, #87F5F5 0%, #FFE5F1 55%, #F042FF 100%);
+}
+.theme-swatch-midnight-nebula .theme-swatch-preview {
+  background: linear-gradient(160deg, #7226FF 0%, #160078 55%, #010030 100%);
+}
 
 /* ---------- Crossfade slider ---------- */
 .crossfade-slider-row { padding: 0 0 var(--space-3); }
