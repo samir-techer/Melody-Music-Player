@@ -46,12 +46,19 @@
   <link rel="stylesheet" href="./css/admin.css" />
   <link rel="stylesheet" href="./css/elite.css" />
   <link rel="stylesheet" href="./css/achievements.css" />
+  <link rel="stylesheet" href="./css/soundcloud.css" />
 </head>
 <body>
   <div id="firebase-diagnostic-banner" hidden></div>
   <div class="app-shell">
     <div id="app-root"></div>
   </div>
+
+  <!-- SoundCloud's own official Widget API (developers.soundcloud.com/docs/api/html5-widget) —
+       exposes window.SC.Widget, used only by js/services/soundcloud-widget-player.js
+       for playback. Loaded here (not as a module import) since it's a
+       plain global-exposing script, same as SoundCloud's own docs show. -->
+  <script src="https://w.soundcloud.com/player/api.js"></script>
 
   <script type="module" src="./js/app.js"></script>
 </body>
