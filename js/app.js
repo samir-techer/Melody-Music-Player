@@ -40,6 +40,8 @@ import { renderSearchScreen } from './components/search-screen.js';
 import { renderLibraryScreen } from './components/library-screen.js';
 import { renderSettingsScreen } from './components/settings-screen.js';
 import { renderPremiumScreen } from './components/premium-screen.js';
+import { renderPaymentScreen } from './components/payment-screen.js';
+import { renderPurchaseHistoryScreen } from './components/purchase-history-screen.js';
 import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
@@ -87,6 +89,8 @@ async function boot() {
   registerRoute('library', renderLibraryScreen, { requiresAuth: true });
   registerRoute('settings', renderSettingsScreen, { requiresAuth: true });
   registerRoute('premium', renderPremiumScreen, { requiresAuth: true });
+  registerRoute('payment', renderPaymentScreen, { requiresAuth: true });
+  registerRoute('purchase-history', renderPurchaseHistoryScreen, { requiresAuth: true });
   registerRoute('music-hub', renderMusicHubScreen, { requiresAuth: true });
   registerRoute('metadata-editor', renderMetadataEditorScreen, { requiresAuth: true });
   registerRoute('lyrics', renderLyricsScreen, { requiresAuth: true });
