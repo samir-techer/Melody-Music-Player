@@ -1,0 +1,137 @@
+rules_version = '2';
+
+/**
+ * Melody — Firestore Security Rules
+ *
+ * Deploy with: firebase deploy --only firestore:rules
+ * (or paste into Firebase Console -> Firestore Database -> Rules)
+ *
+ * Model:
+ *   users/{uid}  — one document per account, keyed by the Firebase Auth uid.
+ *                  Holds profile + premium/role/stats fields exactly as
+ *                  written by auth-service.js's ensureUserProfile().
+ *   users/{uid}/transactions/{txnId} — Premium purchase attempts (see
+ *                  payment-service.js). Owner-created as 'pending';
+ *                  status only ever transitions via an admin (manual
+ *                  eSewa payment verification — there's no merchant API
+ *                  to automate against yet, see that file's top comment).
+ *
+ * Rules:
+ *   - A user may only read and write their OWN document (request.auth.uid
+ *     must match the document id) — this is what "Cloud Sync, Premium,
+ *     Admin, and Artist Portal are for authenticated users only, restricted
+ *     to their own data" means at the database layer.
+ *   - A user can update their own document, but can never grant themselves
+ *     `role: "admin"` or edit `premiumPlan` / `premiumExpiry` themselves —
+ *     those are treated as server/admin-controlled fields. In this
+ *     client-only build there is no billing backend yet, so in practice
+ *     they're locked until a Cloud Function or admin console writes them.
+ *   - A signed-in admin (role == "admin" on their OWN existing document)
+ *     may read and write any user's document — this is what backs
+ *     "Admin features require role == 'admin'" for anything that touches
+ *     other users' data (support tools, the future Admin panel, etc).
+ *   - Account creation (the very first write) is allowed by the owner so
+ *     sign-up can create the document client-side, but the new document
+ *     must start as role "User" / plan "Free" — it cannot be created
+ *     already-admin or already-premium.
+ */
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function isOwner(uid) {
+  return isSignedIn() && request.auth.uid == uid;
+}
+
+function isAdmin() {
+  return isSignedIn()
+    && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+    && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.lower() == 'admin';
+}
+
+// Fields a non-admin user is never allowed to change on their own document.
+function adminOnlyFieldsUnchanged() {
+  let before = resource.data;
+  let after = request.resource.data;
+  return after.role == before.role
+    && after.premiumPlan == before.premiumPlan
+    && after.premiumExpiry == before.premiumExpiry
+    && after.accountDisabled == before.accountDisabled;
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+
+      // First-ever write (account creation): must be the owner, and the
+      // document must start unprivileged/free regardless of what the
+      // client sends.
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'User'
+        && request.resource.data.premiumPlan == 'Free';
+
+      // Subsequent updates: owner can edit their own profile fields
+      // (nickname, profilePhoto, lastLogin, totalSongs, totalListeningTime,
+      // etc.) but not role/premiumPlan/premiumExpiry/accountDisabled.
+      // Once accountDisabled is true, the owner loses write access to
+      // their OWN document entirely — only an admin can write it (to
+      // re-enable it) — so "Disable Account" is enforced here, not just
+      // by the app hiding UI.
+      allow update: if isAdmin()
+        || (isOwner(uid) && resource.data.accountDisabled != true && adminOnlyFieldsUnchanged());
+
+      allow delete: if isAdmin();
+
+      // Premium purchase transactions — created by the owner as 'pending'
+      // when they submit an eSewa payment reference, transitioned to
+      // 'verified'/'rejected' ONLY by an admin (payment-service.js's
+      // approveTransaction()/rejectTransaction()). The owner can never
+      // mark their own transaction verified — that's what makes "Premium
+      // only activates after admin verification" a server-enforced rule
+      // and not just a client-side convention.
+      match /transactions/{txnId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid)
+          && request.resource.data.uid == uid
+          && request.resource.data.status == 'pending';
+        allow update: if isAdmin();
+        allow delete: if false;
+      }
+    }
+
+    // Admin Dashboard — audit log of every admin action (role changes,
+    // premium grants, account disable/enable, deletions). Write-once,
+    // append-only: admins can create entries and read the log, but
+    // nothing can ever update or delete an existing entry, admin
+    // included — that's what makes it a real audit trail.
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && request.resource.data.adminUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Admin Dashboard — global, app-wide settings (currently just the ad
+    // system's kill-switch/frequency). Every signed-in user's client
+    // needs to read this to know whether ads are enabled right now; only
+    // an admin can change it.
+    match /app_config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Collection-group read for the Admin Dashboard's Payments tab
+    // (subscribePendingTransactions in payment-service.js): lets an admin
+    // query every user's transactions subcollection at once via
+    // collectionGroup('transactions') without knowing uids ahead of time.
+    // The per-path rule above already covers normal (non-collection-group)
+    // reads/writes; this is specifically what collection-group queries
+    // require.
+    match /{path=**}/transactions/{txnId} {
+      allow read: if isAdmin();
+    }
+  }
+}
