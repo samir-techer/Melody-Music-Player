@@ -176,54 +176,89 @@ export async function approveTransaction(txn, adminActor) {
 
   // Renewing before expiry extends from the current expiry, not from
   // today — matches how the Premium screen's "Renew" button is framed.
-  const currentUserSnap = await getDoc(doc(db, 'users', txn.uid));
+  let currentUserSnap;
+  try {
+    currentUserSnap = await getDoc(doc(db, 'users', txn.uid));
+  } catch (err) {
+    throw new Error(`[reading users/${txn.uid}] ${err.message}`);
+  }
   const currentExpiryRaw = currentUserSnap.data()?.premiumExpiry;
   const currentExpiryMs = typeof currentExpiryRaw?.toMillis === 'function' ? currentExpiryRaw.toMillis() : null;
   const base = currentExpiryMs && currentExpiryMs > Date.now() ? new Date(currentExpiryMs) : new Date();
   const monthsToAdd = txn.billing === 'yearly' ? 12 : 1;
   const newExpiry = addMonthsToDate(base, monthsToAdd);
 
-  await setUserPremium(txn.uid, { plan: txn.plan, expiry: newExpiry }, adminActor);
+  try {
+    await setUserPremium(txn.uid, { plan: txn.plan, expiry: newExpiry }, adminActor);
+  } catch (err) {
+    throw new Error(`[granting premium via setUserPremium] ${err.message}`);
+  }
 
-  await setDoc(doc(db, 'users', txn.uid), {
-    purchaseDate: Date.now(),
-    transactionId: txn.melodyTransactionId || txn.id,
-    paymentMethod: txn.providerId,
-    paymentStatus: 'verified',
-    couponUsed: txn.couponCode || null,
-    discountReceived: txn.discountAmount || 0,
-    finalAmountPaid: txn.finalAmount,
-  }, { merge: true });
+  try {
+    await setDoc(doc(db, 'users', txn.uid), {
+      purchaseDate: Date.now(),
+      transactionId: txn.melodyTransactionId || txn.id,
+      paymentMethod: txn.providerId,
+      paymentStatus: 'verified',
+      couponUsed: txn.couponCode || null,
+      discountReceived: txn.discountAmount || 0,
+      finalAmountPaid: txn.finalAmount,
+    }, { merge: true });
+  } catch (err) {
+    throw new Error(`[writing purchase fields to users/${txn.uid}] ${err.message}`);
+  }
 
-  if (txn.couponCode) await markCouponRedeemed(txn.uid, txn.couponCode, { txnId: txn.id });
+  if (txn.couponCode) {
+    try {
+      await markCouponRedeemed(txn.uid, txn.couponCode, { txnId: txn.id });
+    } catch (err) {
+      throw new Error(`[marking coupon ${txn.couponCode} redeemed] ${err.message}`);
+    }
+  }
 
-  await setDoc(doc(db, 'users', txn.uid, 'transactions', txn.id), {
-    status: 'verified',
-    verifiedAt: Date.now(),
-    verifiedBy: adminActor?.uid || null,
-  }, { merge: true });
+  try {
+    await setDoc(doc(db, 'users', txn.uid, 'transactions', txn.id), {
+      status: 'verified',
+      verifiedAt: Date.now(),
+      verifiedBy: adminActor?.uid || null,
+    }, { merge: true });
+  } catch (err) {
+    throw new Error(`[marking transaction ${txn.id} verified] ${err.message}`);
+  }
 
-  await logAdminAction(
-    adminActor,
-    `Approved eSewa payment — ${txn.plan} (${txn.billing}), ${PAYMENT_PROVIDERS.esewa.label} ref ${txn.providerReferenceId}, रु${txn.finalAmount}`,
-    txn.uid,
-  );
+  try {
+    await logAdminAction(
+      adminActor,
+      `Approved eSewa payment — ${txn.plan} (${txn.billing}), ${PAYMENT_PROVIDERS.esewa.label} ref ${txn.providerReferenceId}, रु${txn.finalAmount}`,
+      txn.uid,
+    );
+  } catch (err) {
+    throw new Error(`[writing admin_logs entry] ${err.message}`);
+  }
 }
 
 /** Rejects a pending transaction. Coupon (if any) stays untouched/active — nothing was ever consumed. */
 export async function rejectTransaction(txn, reason, adminActor) {
   if (txn.status !== 'pending') throw new Error('This transaction has already been reviewed.');
 
-  await setDoc(doc(db, 'users', txn.uid, 'transactions', txn.id), {
-    status: 'rejected',
-    verifiedAt: Date.now(),
-    verifiedBy: adminActor?.uid || null,
-    rejectionReason: reason || null,
-  }, { merge: true });
+  try {
+    await setDoc(doc(db, 'users', txn.uid, 'transactions', txn.id), {
+      status: 'rejected',
+      verifiedAt: Date.now(),
+      verifiedBy: adminActor?.uid || null,
+      rejectionReason: reason || null,
+    }, { merge: true });
+  } catch (err) {
+    throw new Error(`[marking transaction ${txn.id} rejected] ${err.message}`);
+  }
 
-  await logAdminAction(
-    adminActor,
-    `Rejected eSewa payment — ${txn.plan} (${txn.billing}), ref ${txn.providerReferenceId}${reason ? `: ${reason}` : ''}`,
-    txn.uid,
-  );
+  try {
+    await logAdminAction(
+      adminActor,
+      `Rejected eSewa payment — ${txn.plan} (${txn.billing}), ref ${txn.providerReferenceId}${reason ? `: ${reason}` : ''}`,
+      txn.uid,
+    );
+  } catch (err) {
+    throw new Error(`[writing admin_logs entry] ${err.message}`);
+  }
 }
