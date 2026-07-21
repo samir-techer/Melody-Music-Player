@@ -19,10 +19,10 @@
 import { navigate } from '../utils/router.js';
 import { getPremiumState, subscribePremium, PLAN_ORDER, waitForPremiumReady } from '../services/premium-service.js';
 
-const CURRENCY = 'रु';
+export const CURRENCY = 'रु';
 const FIRST_PURCHASE_OFF = 20; // % — stacks with yearly
 
-const PLANS = [
+export const PLANS = [
   {
     key: 'free',
     icon: '🆓',
@@ -185,6 +185,7 @@ export async function renderPremiumScreen() {
     <header class="premium-header premium-fade">
       <h1>Melody Premium</h1>
       <p>Unlock more features and support Melody's development.</p>
+      <button type="button" id="premium-history-link" class="btn-secondary" style="width:auto;margin-top:12px;">🧾 Purchase History</button>
     </header>
 
     <div id="premium-status-banner-slot"></div>
@@ -273,6 +274,7 @@ export async function renderPremiumScreen() {
     e.preventDefault();
     navigate('settings');
   });
+  el.querySelector('#premium-history-link').addEventListener('click', () => navigate('purchase-history'));
 
   // ---------- Per-plan billing toggle + CTA (single delegated listener —
   // cards are never rebuilt, only each plan's price block is refreshed) ----------
@@ -293,7 +295,10 @@ export async function renderPremiumScreen() {
     }
 
     const ctaBtn = e.target.closest('.plan-cta:not([disabled])');
-    if (ctaBtn) openComingSoonModal(el);
+    if (ctaBtn) {
+      const planKey = ctaBtn.dataset.planKey;
+      navigate('payment', { planKey, billing: planBilling[planKey] || 'monthly' });
+    }
   });
 
   // Cross-fades a single plan's price block into its new Monthly/Yearly
@@ -363,7 +368,7 @@ export async function renderPremiumScreen() {
  * pre-discount annual total (12 × monthly, shown struck through) and the
  * plan's fixed discounted annual total, plus the exact rupee amount saved.
  */
-function computePrice(plan, billing) {
+export function computePrice(plan, billing) {
   if (plan.price === 0) {
     return { isFree: true };
   }
@@ -446,16 +451,14 @@ function renderPlanCard(plan, billing, state) {
   let planNote = '';
 
   if (plan.name === effectivePlan) {
-    disabled = true;
-    if (plan.name === 'Elite') {
-      ctaLabel = '👑 Current Plan';
-      ctaClass = 'is-current-elite';
-      planNote = 'You already own the highest plan.';
-    } else if (plan.name === 'Free') {
-      ctaLabel = 'Current Plan';
+    if (!isFree) {
+      // Current paid plan — renewable, not just a dead "Current Plan" badge.
+      ctaLabel = `↻ Renew ${plan.name}`;
       ctaClass = 'is-current-plan';
+      planNote = 'Renewing extends from your current expiry date.';
     } else {
-      ctaLabel = '✓ Current Plan';
+      disabled = true;
+      ctaLabel = 'Current Plan';
       ctaClass = 'is-current-plan';
     }
   } else if (!isFree && planRank < currentRank) {
@@ -551,7 +554,7 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function openComingSoonModal(screenEl) {
+export function openComingSoonModal(screenEl) {
   const overlay = document.createElement('div');
   overlay.className = 'premium-modal-overlay';
   overlay.innerHTML = `

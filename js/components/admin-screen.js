@@ -17,12 +17,15 @@ import {
   setAccountDisabled, deleteUserRecord, getOverviewStats, getCloudBackupUsageSample,
   getAdConfig, setAdConfig, listAdminLogs,
 } from '../services/admin-service.js';
+import { subscribePendingTransactions, approveTransaction, rejectTransaction } from '../services/payment-service.js';
 import { getAdFiles, reloadAdManifest, previewAdClip } from '../services/ad-manager.js';
 import { showToast } from '../utils/toast.js';
+import { showConfirmDialog } from '../utils/confirm-dialog.js';
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'users', label: 'Users' },
+  { key: 'payments', label: 'Payments' },
   { key: 'ads', label: 'Advertisements' },
   { key: 'logs', label: 'Logs' },
 ];
@@ -52,11 +55,22 @@ export async function renderAdminScreen() {
   // Users tab state
   let userState = { pageSize: 20, cursorDoc: null, sortBy: 'newest', roleFilter: '', planFilter: '', searchQuery: '', users: [], hasMore: false };
 
+  // Payments tab: a LIVE collectionGroup listener (not a one-shot fetch
+  // like every other tab here) — new pending payments should appear
+  // without switching tabs away and back. Torn down in renderTab()
+  // whenever we navigate to a different tab, and again on unmount.
+  let unsubscribePaymentsListener = null;
+
   async function renderTab() {
+    if (activeTab !== 'payments' && unsubscribePaymentsListener) {
+      unsubscribePaymentsListener();
+      unsubscribePaymentsListener = null;
+    }
     contentEl.innerHTML = `<div class="admin-loading-skeleton"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>`;
     try {
       if (activeTab === 'overview') await renderOverviewTab();
       else if (activeTab === 'users') await renderUsersTab({ resetPaging: true });
+      else if (activeTab === 'payments') await renderPaymentsTab();
       else if (activeTab === 'ads') await renderAdsTab();
       else if (activeTab === 'logs') await renderLogsTab();
     } catch (err) {
@@ -458,6 +472,83 @@ export async function renderAdminScreen() {
   }
 
   /* ================================================================ */
+  /*  Payments — pending eSewa verification queue                      */
+  /* ================================================================ */
+  async function renderPaymentsTab() {
+    contentEl.innerHTML = `<div class="admin-payments-list" id="admin-payments-list"><p class="hint">Loading pending payments…</p></div>`;
+    const listEl = contentEl.querySelector('#admin-payments-list');
+
+    if (unsubscribePaymentsListener) unsubscribePaymentsListener();
+    unsubscribePaymentsListener = subscribePendingTransactions((pending) => {
+      if (!pending.length) {
+        listEl.innerHTML = '<div class="admin-empty">No pending payments — all caught up.</div>';
+        return;
+      }
+      listEl.innerHTML = pending.map(renderPaymentRow).join('');
+      bindPaymentRowEvents(listEl, pending);
+    });
+  }
+
+  function renderPaymentRow(txn) {
+    const submitted = txn.createdAt ? new Date(txn.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+    return `
+      <div class="admin-payment-card" data-txn-path="${escapeAttr(txn.path)}">
+        <div class="admin-payment-top">
+          <span><strong>${escapeHtml(txn.plan)}</strong> (${txn.billing === 'yearly' ? 'Yearly' : 'Monthly'}) — रु${txn.finalAmount}</span>
+          <span class="hint">Submitted ${submitted}</span>
+        </div>
+        <div class="admin-payment-detail">User: ${escapeHtml(txn.uid)}</div>
+        <div class="admin-payment-detail">eSewa reference: <strong>${escapeHtml(txn.providerReferenceId)}</strong></div>
+        <div class="admin-payment-detail">Melody Transaction ID: ${escapeHtml(txn.melodyTransactionId || txn.id)}</div>
+        ${txn.couponCode ? `<div class="admin-payment-detail">Coupon: ${escapeHtml(txn.couponCode)} (${txn.discountPercent}% off, रु${txn.discountAmount})</div>` : ''}
+        <div class="admin-payment-actions">
+          <button type="button" class="btn-secondary admin-payment-approve">✅ Approve</button>
+          <button type="button" class="btn-secondary admin-payment-reject">❌ Reject</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindPaymentRowEvents(listEl, pending) {
+    listEl.querySelectorAll('.admin-payment-card').forEach((card) => {
+      const txn = pending.find((t) => t.path === card.dataset.txnPath);
+      if (!txn) return;
+
+      card.querySelector('.admin-payment-approve').addEventListener('click', async () => {
+        const ok = await showConfirmDialog({
+          title: 'Approve this payment?',
+          message: `This immediately activates ${txn.plan} on the user's account and marks their coupon (if any) as used.`,
+          confirmLabel: 'Approve',
+        });
+        if (!ok) return;
+        try {
+          await approveTransaction(txn, actor);
+          showToast('Payment approved — Premium is now active for this user.');
+        } catch (err) {
+          console.error('[Melody] Admin: approve payment failed.', err);
+          showToast(`Couldn't approve: ${err?.message || 'unknown error'}`);
+        }
+      });
+
+      card.querySelector('.admin-payment-reject').addEventListener('click', async () => {
+        const ok = await showConfirmDialog({
+          title: 'Reject this payment?',
+          message: 'The user\u2019s coupon (if any) stays active and untouched. Nothing is activated.',
+          confirmLabel: 'Reject',
+        });
+        if (!ok) return;
+        try {
+          await rejectTransaction(txn, null, actor);
+          showToast('Payment rejected.');
+        } catch (err) {
+          console.error('[Melody] Admin: reject payment failed.', err);
+          showToast(`Couldn't reject: ${err?.message || 'unknown error'}`);
+        }
+      });
+    });
+  }
+
+  /* ================================================================ */
   /*  Logs                                                              */
   /* ================================================================ */
   let logsCursor = null;
@@ -499,7 +590,10 @@ export async function renderAdminScreen() {
   await renderTab();
 
   const unsubscribeShell = attachShell(el, 'settings');
-  el._onLeave = () => { unsubscribeShell(); };
+  el._onLeave = () => {
+    unsubscribeShell();
+    if (unsubscribePaymentsListener) unsubscribePaymentsListener();
+  };
 
   return el;
 }
