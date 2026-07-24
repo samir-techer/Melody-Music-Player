@@ -128,6 +128,14 @@ export async function renderPlayerScreen() {
   let lastKnownAudioTime = 0;
   let lastKnownAt = performance.now();
 
+  // Waveform seek bar's "played" portion is painted via a CSS custom
+  // property rather than the native (unstyleable) range fill.
+  function updateSeekProgress() {
+    const max = Number(seekBar.max) || 0;
+    const pct = max > 0 ? (Number(seekBar.value) / max) * 100 : 0;
+    seekBar.style.setProperty('--progress', `${pct}%`);
+  }
+
   // ---------- Smooth seek bar: interpolate between timeupdate ticks with
   // requestAnimationFrame so the bar glides instead of stepping ~4x/sec. ----------
   function animateSeekBar() {
@@ -136,6 +144,7 @@ export async function renderPlayerScreen() {
     const elapsed = (performance.now() - lastKnownAt) / 1000;
     const estimated = Math.min(lastKnownAudioTime + elapsed, latestState.duration || lastKnownAudioTime);
     seekBar.value = estimated;
+    updateSeekProgress();
     currentTimeEl.textContent = formatTime(estimated);
   }
   rafId = requestAnimationFrame(animateSeekBar);
@@ -187,6 +196,7 @@ export async function renderPlayerScreen() {
     if (!isDraggingSeek) {
       seekBar.max = state.duration || 0;
       seekBar.value = state.currentTime || 0;
+      updateSeekProgress();
       currentTimeEl.textContent = formatTime(state.currentTime);
       totalDurationEl.textContent = formatTime(state.duration);
     }
@@ -289,6 +299,7 @@ export async function renderPlayerScreen() {
   el.querySelector('#queue-close').addEventListener('click', () => { queueSheet.hidden = true; });
 
   seekBar.addEventListener('input', () => {
+    updateSeekProgress();
     isDraggingSeek = true;
     currentTimeEl.textContent = formatTime(Number(seekBar.value));
   });
