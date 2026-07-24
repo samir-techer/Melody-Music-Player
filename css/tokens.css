@@ -7,19 +7,19 @@
 
 :root {
   /* ---------- Color ---------- */
-  --color-bg:            #F5F1EC; /* app background */
-  --color-bg-secondary:  #EAE3DB; /* section backgrounds, dividers, inputs */
+  --color-bg:            #FFFFFF; /* app background — pure white */
+  --color-bg-secondary:  #F5F5F7; /* section backgrounds, dividers, inputs — soft gray */
   --color-card:          #FFFFFF; /* cards, sheets, modals */
-  --color-text-primary:  #1F1F1F; /* headings, primary copy */
-  --color-text-secondary:#7A7A7A; /* captions, meta, helper text */
-  --color-accent:        #232323; /* primary buttons, active states, vinyl */
+  --color-text-primary:  #000000; /* headings, primary copy — pure black */
+  --color-text-secondary:#8A8A8E; /* captions, meta, helper text */
+  --color-accent:        #000000; /* primary buttons, active states, vinyl */
 
   /* Derived / utility tones (kept close to the core palette — no neon, no hue shifts) */
-  --color-accent-soft:   rgba(35, 35, 35, 0.06);   /* hover/pressed backgrounds on light surfaces */
-  --color-accent-softer: rgba(35, 35, 35, 0.035);
-  --color-divider:       rgba(31, 31, 31, 0.08);
-  --color-overlay:       rgba(31, 31, 31, 0.45);   /* modal scrims */
-  --color-heart:         #B24B3C; /* muted terracotta-red, used ONLY for the favorite heart */
+  --color-accent-soft:   rgba(0, 0, 0, 0.05);   /* hover/pressed backgrounds on light surfaces */
+  --color-accent-softer: rgba(0, 0, 0, 0.03);
+  --color-divider:       rgba(0, 0, 0, 0.07);
+  --color-overlay:       rgba(0, 0, 0, 0.45);   /* modal scrims */
+  --color-heart:         #000000; /* favorite heart reads as filled black — minimalist, no red accent */
 
   /* ---------- Typography ---------- */
   --font-display: "Fraunces", "Iowan Old Style", "Georgia", serif;
@@ -50,16 +50,16 @@
   --space-8:  5rem;     /* 80px */
 
   /* ---------- Radius ---------- */
-  --radius-sm:  10px;
-  --radius-md:  16px;
+  --radius-sm:  14px;
+  --radius-md:  20px;
   --radius-lg:  24px;
-  --radius-xl:  32px;
+  --radius-xl:  28px;
   --radius-full: 999px;
 
   /* ---------- Shadow (subtle only — never heavy) ---------- */
-  --shadow-sm: 0 1px 2px rgba(31, 31, 31, 0.04), 0 1px 1px rgba(31, 31, 31, 0.03);
-  --shadow-md: 0 4px 16px rgba(31, 31, 31, 0.06);
-  --shadow-lg: 0 12px 32px rgba(31, 31, 31, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 1px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.07);
 
   /* ---------- Motion ---------- */
   --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
