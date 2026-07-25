@@ -7,7 +7,6 @@
  */
 
 const DB_NAME = 'melody-db';
-const DB_VERSION = 1;
 
 export const SONGS_STORE = 'songs';
 export const PLAYLISTS_STORE = 'playlists';
@@ -22,55 +21,81 @@ const LEGACY_DB_NAMES = ['melody-db', 'MelodyDB', 'melody', 'music-player-db', '
 
 let dbPromise = null;
 
+const REQUIRED_STORES = [
+  [SONGS_STORE, 'id'],
+  [PLAYLISTS_STORE, 'id'],
+  [LYRICS_CACHE_STORE, 'key'],
+];
+
+function createMissingStores(db) {
+  REQUIRED_STORES.forEach(([name, keyPath]) => {
+    if (!db.objectStoreNames.contains(name)) {
+      db.createObjectStore(name, { keyPath });
+    }
+  });
+}
+
 /** Opens (or returns the already-open) shared database instance. */
 export function getDB() {
   if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(SONGS_STORE)) {
-        db.createObjectStore(SONGS_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
-        db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(LYRICS_CACHE_STORE)) {
-        db.createObjectStore(LYRICS_CACHE_STORE, { keyPath: 'key' });
-      }
-    };
-
-    request.onsuccess = () => {
-      const db = request.result;
-      // If another tab upgrades the schema later, drop this handle so the
-      // next getDB() call reopens cleanly instead of working against a
-      // closed connection.
-      db.onversionchange = () => {
-        db.close();
-        dbPromise = null;
-      };
-
-      // First-open-of-this-session safety net: if this looks like a brand
-      // new/empty database, check whether an older/differently-named
-      // Melody database on this origin actually has songs sitting in it
-      // (e.g. a past rename, or a version bump that created a fresh store
-      // instead of reusing the old one) and pull that data forward. This
-      // never deletes or overwrites anything — it only fills in records
-      // that aren't already present, and only runs once.
-      recoverLegacyDatabases(db)
-        .catch((err) => console.warn('[Melody] Legacy database recovery skipped:', err))
-        .finally(() => resolve(db));
-    };
-
-    request.onerror = () => {
-      dbPromise = null; // allow a retry on the next call instead of caching a failure
-      reject(request.error);
-    };
-  });
-
+  dbPromise = openHealed();
   return dbPromise;
+}
+
+/**
+ * Opens melody-db and, if it's already sitting at DB_VERSION but is
+ * missing one or more of the required object stores (a corrupted/partial
+ * schema — e.g. a previous open created the database shell but the
+ * upgrade transaction that creates the stores never actually ran/
+ * completed), forces a real version-number bump so IndexedDB fires
+ * onupgradeneeded again and the missing stores get created. Existing
+ * stores and their data are never touched — this only ever ADDS stores
+ * that aren't there yet, it never recreates or clears one that exists.
+ */
+async function openHealed() {
+  let db = await openAtCurrentVersion();
+
+  const missing = REQUIRED_STORES.filter(([name]) => !db.objectStoreNames.contains(name));
+  if (missing.length) {
+    console.warn(
+      `[Melody] melody-db (v${db.version}) is missing object store(s): ${missing.map((m) => m[0]).join(', ')}. ` +
+      'Repairing schema without touching existing data.'
+    );
+    const brokenVersion = db.version;
+    db.close();
+    db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, brokenVersion + 1);
+      req.onupgradeneeded = () => createMissingStores(req.result);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn('[Melody] Schema repair blocked — close other Melody tabs to let it finish.');
+    });
+    console.log(`[Melody] Schema repaired — melody-db is now at version ${db.version} with all required stores.`);
+  }
+
+  db.onversionchange = () => {
+    db.close();
+    dbPromise = null;
+  };
+
+  await recoverLegacyDatabases(db).catch((err) =>
+    console.warn('[Melody] Legacy database recovery skipped:', err)
+  );
+
+  return db;
+}
+
+function openAtCurrentVersion() {
+  return new Promise((resolve, reject) => {
+    // No version argument: attaches at whatever version already exists
+    // (or creates a fresh version-1 database with no stores if it truly
+    // doesn't exist yet — handled by the missing-store repair above,
+    // which is also what correctly bootstraps a first-ever install).
+    const request = indexedDB.open(DB_NAME);
+    request.onupgradeneeded = () => createMissingStores(request.result);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 let recoveryAttempted = false;
