@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melody — Bug Finder</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #F5F1EC; color: #1F1F1F; padding: 20px; max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin-top: 30px; border-bottom: 1px solid #EAE3DB; padding-bottom: 6px; }
+  p.desc { color: #7A7A7A; font-size: 13px; margin-top: 4px; }
+  pre { background: #fff; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-word; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+  .ok { color: #1a7a1a; }
+  .warn { color: #b45309; }
+  .err { color: #c0392b; font-weight: 600; }
+  button { padding: 9px 14px; border-radius: 999px; border: none; background: #232323; color: #F5F1EC; font-weight: 600; font-size: 13px; cursor: pointer; margin: 4px 6px 4px 0; }
+  button.secondary { background: #EAE3DB; color: #1F1F1F; }
+  .swatch-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .swatch { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.15); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin-top: 8px; }
+  .kv div:nth-child(odd) { color: #7A7A7A; }
+  #console-log { max-height: 220px; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #EAE3DB; margin-left: 6px; }
+</style>
+</head>
+<body>
+  <h1>Melody — Bug Finder</h1>
+  <p class="desc">
+    Drop this file in the same folder as <code>index.html</code> and open it served over http/https (same as the app itself) —
+    not from a Downloads/file browser, or the module checks below will fail for unrelated reasons.
+    Everything here is read-only except the theme test, which only ever sets a theme (never deletes data).
+  </p>
+  <p id="env-banner"></p>
+
+  <h2>1. Live console capture</h2>
+  <p class="desc">Catches every error/warning the app throws for the rest of this session — including ones that happen silently in the background.</p>
+  <pre id="console-log">(listening…)</pre>
+  <button class="secondary" id="clear-console">Clear</button>
+
+  <h2>2. Theme diagnostics <span class="badge">the reported bug</span></h2>
+  <p class="desc">Compares what's <em>stored</em> as your theme choice against what's actually <em>applied</em> to the page right now.</p>
+  <button id="theme-snapshot">Check current theme state</button>
+  <pre id="theme-out">(not run yet)</pre>
+  <div class="swatch-row" id="theme-swatches"></div>
+  <p class="desc" style="margin-top:14px;">Force-apply a mode and watch whether the values above actually change:</p>
+  <button id="apply-light">Apply Light</button>
+  <button id="apply-dark">Apply Dark</button>
+  <button id="apply-system">Apply System</button>
+  <pre id="theme-apply-out">(pick a mode above)</pre>
+
+  <h2>3. IndexedDB (song library)</h2>
+  <button id="list-dbs">List databases</button>
+  <button id="inspect-db">Inspect melody-db</button>
+  <pre id="db-out">(not run yet)</pre>
+
+  <h2>4. Service worker &amp; cache</h2>
+  <button id="check-sw">Check service worker</button>
+  <pre id="sw-out">(not run yet)</pre>
+
+  <h2>5. Module load check</h2>
+  <p class="desc">Confirms the app's own JS files actually load from here (catches broken paths / stale deploys).</p>
+  <button id="check-modules">Check core modules</button>
+  <pre id="modules-out">(not run yet)</pre>
+
+  <script type="module">
+    // ---------- Environment banner ----------
+    const envBanner = document.getElementById('env-banner');
+    const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+    envBanner.innerHTML = isHttp
+      ? `<span class="ok">✓ Served over ${location.protocol}//${location.host}${location.pathname}</span>`
+      : `<span class="err">⚠ Opened via "${location.protocol}" — module imports and some storage APIs will not behave like the real app. Serve this over http/https instead (e.g. the same URL your app runs at, or "npx serve .").</span>`;
+
+    // ---------- 1. Console capture ----------
+    const consoleLog = document.getElementById('console-log');
+    function logLine(text, cls) {
+      const div = document.createElement('div');
+      if (cls) div.className = cls;
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+      consoleLog.appendChild(div);
+      consoleLog.scrollTop = consoleLog.scrollHeight;
+    }
+    consoleLog.textContent = '';
+    logLine('Listening for console.error / console.warn / uncaught errors…', 'ok');
+
+    const origError = console.error.bind(console);
+    const origWarn = console.warn.bind(console);
+    console.error = (...args) => { logLine('ERROR: ' + args.map(String).join(' '), 'err'); origError(...args); };
+    console.warn = (...args) => { logLine('WARN: ' + args.map(String).join(' '), 'warn'); origWarn(...args); };
+    window.addEventListener('error', (e) => logLine(`Uncaught: ${e.message} (${e.filename}:${e.lineno})`, 'err'));
+    window.addEventListener('unhandledrejection', (e) => logLine('Unhandled promise rejection: ' + (e.reason?.message || e.reason), 'err'));
+
+    document.getElementById('clear-console').addEventListener('click', () => { consoleLog.innerHTML = ''; });
+
+    // ---------- 2. Theme diagnostics ----------
+    const themeOut = document.getElementById('theme-out');
+    const themeApplyOut = document.getElementById('theme-apply-out');
+    const themeSwatches = document.getElementById('theme-swatches');
+
+    function readThemeSnapshot() {
+      const root = document.documentElement;
+      const computed = getComputedStyle(root);
+      return {
+        domDataTheme: root.getAttribute('data-theme'),
+        domPremiumTheme: root.getAttribute('data-premium-theme'),
+        colorScheme: root.style.colorScheme || computed.colorScheme,
+        localStorageStored: (() => {
+          try { return localStorage.getItem('melody:theme'); } catch { return '(unreadable)'; }
+        })(),
+        syncMirror: (() => {
+          try { return localStorage.getItem('melody-theme-sync'); } catch { return '(unreadable)'; }
+        })(),
+        cssBg: computed.getPropertyValue('--color-bg').trim(),
+        cssText: computed.getPropertyValue('--color-text-primary').trim(),
+        systemPrefersDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+      };
+    }
+
+    function renderSnapshot(el, snap) {
+      el.innerHTML = '';
+      const rows = [
+        ['DOM data-theme attribute', snap.domDataTheme || '(none)'],
+        ['DOM data-premium-theme', snap.domPremiumTheme || '(none)'],
+        ['color-scheme', snap.colorScheme || '(none)'],
+        ['localStorage "melody:theme"', snap.localStorageStored ?? '(not set)'],
+        ['localStorage "melody-theme-sync"', snap.syncMirror ?? '(not set)'],
+        ['computed --color-bg', snap.cssBg],
+        ['computed --color-text-primary', snap.cssText],
+        ['OS prefers dark', String(snap.systemPrefersDark)],
+      ];
+      const kv = document.createElement('div');
+      kv.className = 'kv';
+      rows.forEach(([k, v]) => {
+        const dt = document.createElement('div'); dt.textContent = k;
+        const dd = document.createElement('div'); dd.textContent = v;
+        kv.appendChild(dt); kv.appendChild(dd);
+      });
+      el.appendChild(kv);
+
+      const mismatch = snap.localStorageStored && snap.domDataTheme &&
+        JSON.parse(snap.localStorageStored || 'null') !== snap.domDataTheme &&
+        JSON.parse(snap.localStorageStored || 'null') !== 'system';
+      if (mismatch) {
+        const warnEl = document.createElement('div');
+        warnEl.className = 'err';
+        warnEl.textContent = `⚠ Mismatch: stored preference is "${snap.localStorageStored}" but the page currently has data-theme="${snap.domDataTheme}" applied. This is the bug — the setting saved but never got (re)applied to the DOM.`;
+        el.appendChild(warnEl);
+      }
+    }
+
+    function paintSwatches(snap) {
+      themeSwatches.innerHTML = '';
+      [['--color-bg', snap.cssBg], ['--color-text-primary', snap.cssText]].forEach(([label, val]) => {
+        const sw = document.createElement('div');
+        sw.className = 'swatch';
+        sw.style.background = val || '#ccc';
+        sw.title = `${label}: ${val}`;
+        themeSwatches.appendChild(sw);
+      });
+    }
+
+    document.getElementById('theme-snapshot').addEventListener('click', () => {
+      const snap = readThemeSnapshot();
+      renderSnapshot(themeOut, snap);
+      paintSwatches(snap);
+    });
+
+    async function forceApply(mode) {
+      themeApplyOut.textContent = `Applying "${mode}"…\n`;
+      const before = readThemeSnapshot();
+      try {
+        const mod = await import('./js/services/theme-service.js');
+        await mod.setThemeMode(mode);
+        // give any transition/microtask a beat to settle
+        await new Promise((r) => setTimeout(r, 50));
+        const after = readThemeSnapshot();
+        const changed = before.domDataTheme !== after.domDataTheme || before.cssBg !== after.cssBg;
+        themeApplyOut.textContent =
+          `Before: data-theme="${before.domDataTheme}", --color-bg=${before.cssBg}\n` +
+          `After:  data-theme="${after.domDataTheme}", --color-bg=${after.cssBg}\n\n` +
+          (changed
+            ? '✓ The DOM and computed styles DID change — theme-service.js is applying correctly here.'
+            : '✗ Nothing changed even after calling setThemeMode() directly — the problem is inside theme-service.js / tokens.css itself, not the button that calls it.');
+        themeApplyOut.className = changed ? 'ok' : 'err';
+        renderSnapshot(themeOut, after);
+        paintSwatches(after);
+      } catch (err) {
+        themeApplyOut.textContent = 'FAILED to even call setThemeMode(): ' + (err?.stack || err);
+        themeApplyOut.className = 'err';
+      }
+    }
+    document.getElementById('apply-light').addEventListener('click', () => forceApply('light'));
+    document.getElementById('apply-dark').addEventListener('click', () => forceApply('dark'));
+    document.getElementById('apply-system').addEventListener('click', () => forceApply('system'));
+
+    // ---------- 3. IndexedDB ----------
+    const dbOut = document.getElementById('db-out');
+    function dblog(text, cls) {
+      const div = document.createElement('div');
+      if (cls) div.className = cls;
+      div.textContent = text;
+      dbOut.appendChild(div);
+    }
+    document.getElementById('list-dbs').addEventListener('click', async () => {
+      dbOut.innerHTML = '';
+      if (typeof indexedDB.databases !== 'function') { dblog('indexedDB.databases() not supported in this browser.', 'warn'); return; }
+      const dbs = await indexedDB.databases();
+      if (!dbs.length) { dblog('No IndexedDB databases on this origin.', 'err'); return; }
+      dbs.forEach((d) => dblog(`• ${d.name} (version ${d.version})`, d.name === 'melody-db' ? 'ok' : ''));
+    });
+    document.getElementById('inspect-db').addEventListener('click', async () => {
+      dbOut.innerHTML = '';
+      if (typeof indexedDB.databases === 'function') {
+        const existing = await indexedDB.databases();
+        if (!existing.some((d) => d.name === 'melody-db')) {
+          dblog('melody-db does not exist yet on this origin — not opening it (would create an empty one).', 'err');
+          return;
+        }
+      }
+      const req = indexedDB.open('melody-db');
+      req.onsuccess = () => {
+        const db = req.result;
+        dblog(`Opened melody-db, version ${db.version}`, 'ok');
+        dblog(`Object stores: ${Array.from(db.objectStoreNames).join(', ') || '(none)'}`, db.objectStoreNames.length ? 'ok' : 'err');
+        if (db.objectStoreNames.contains('songs')) {
+          const tx = db.transaction('songs', 'readonly');
+          tx.objectStore('songs').count().onsuccess = (ev) => {
+            dblog(`songs record count: ${ev.target.result}`, ev.target.result > 0 ? 'ok' : 'warn');
+            db.close();
+          };
+        } else {
+          db.close();
+        }
+      };
+      req.onerror = () => dblog('Error: ' + req.error, 'err');
+    });
+
+    // ---------- 4. Service worker ----------
+    document.getElementById('check-sw').addEventListener('click', async () => {
+      const swOut = document.getElementById('sw-out');
+      swOut.innerHTML = '';
+      const line = (t, c) => { const d = document.createElement('div'); if (c) d.className = c; d.textContent = t; swOut.appendChild(d); };
+      if (!('serviceWorker' in navigator)) { line('Service workers not supported in this context.', 'warn'); return; }
+      const regs = await navigator.serviceWorker.getRegistrations();
+      if (!regs.length) { line('No service worker registered for this origin.', 'warn'); return; }
+      regs.forEach((r) => line(`Registered: scope=${r.scope}, active=${r.active ? r.active.scriptURL : '(none)'}, waiting=${r.waiting ? 'YES (an update is stuck pending)' : 'no'}`, r.waiting ? 'warn' : 'ok'));
+      if ('caches' in window) {
+        const names = await caches.keys();
+        line(`Cache Storage buckets: ${names.join(', ') || '(none)'}`);
+      }
+    });
+
+    // ---------- 5. Module load check ----------
+    document.getElementById('check-modules').addEventListener('click', async () => {
+      const modOut = document.getElementById('modules-out');
+      modOut.innerHTML = '';
+      const line = (t, c) => { const d = document.createElement('div'); if (c) d.className = c; d.textContent = t; modOut.appendChild(d); };
+      const modules = [
+        './js/utils/db.js', './js/utils/storage.js', './js/services/theme-service.js',
+        './js/services/import-service.js', './js/services/library-service.js', './js/app.js',
+      ];
+      for (const path of modules) {
+        try {
+          await import(path);
+          line(`✓ ${path}`, 'ok');
+        } catch (err) {
+          line(`✗ ${path} — ${err.message}`, 'err');
+        }
+      }
+    });
+  </script>
+</body>
+</html>
