@@ -100,6 +100,78 @@ export function getCrossfadeConfig() {
   return { ...crossfadeConfig };
 }
 
+// ---------- Playback speed (Now Playing) ----------
+// Deliberately independent of the Web Audio graph below — just the plain
+// HTMLMediaElement property, which is why preservesPitch is set at
+// creation time (a few lines down) so slowing down/speeding up doesn't
+// chipmunk or slow-motion the pitch.
+const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
+
+export function setPlaybackRate(rate) {
+  const clamped = PLAYBACK_RATES.includes(rate) ? rate : 1;
+  audio.playbackRate = clamped;
+  return clamped;
+}
+
+export function getPlaybackRate() {
+  return audio.playbackRate || 1;
+}
+
+export function cyclePlaybackRate() {
+  const current = audio.playbackRate || 1;
+  const idx = PLAYBACK_RATES.indexOf(current);
+  const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
+  audio.playbackRate = next;
+  return next;
+}
+
+// ---------- Sleep timer (Now Playing) ----------
+// Deliberately its own tiny pub-sub, separate from the main playback
+// `subscribe()` state below — it only ever calls the already-exported
+// `pause()` when it fires, so it can't touch the audio graph or the core
+// state machine. Survives navigating away from the Now Playing screen
+// (module-level, not tied to that screen's lifecycle) since a sleep timer
+// conceptually should keep counting down in the background.
+let sleepTimerId = null;
+let sleepTimerEndsAt = null;
+const sleepTimerListeners = new Set();
+
+function notifySleepTimerListeners() {
+  const snapshot = { active: sleepTimerId !== null, endsAt: sleepTimerEndsAt };
+  sleepTimerListeners.forEach((fn) => fn(snapshot));
+}
+
+export function setSleepTimer(minutes) {
+  if (sleepTimerId) { clearTimeout(sleepTimerId); sleepTimerId = null; }
+  if (!minutes || minutes <= 0) {
+    sleepTimerEndsAt = null;
+    notifySleepTimerListeners();
+    return;
+  }
+  sleepTimerEndsAt = Date.now() + minutes * 60 * 1000;
+  sleepTimerId = setTimeout(() => {
+    pause();
+    sleepTimerId = null;
+    sleepTimerEndsAt = null;
+    notifySleepTimerListeners();
+  }, minutes * 60 * 1000);
+  notifySleepTimerListeners();
+}
+
+export function clearSleepTimer() {
+  setSleepTimer(0);
+}
+
+export function getSleepTimerState() {
+  return { active: sleepTimerId !== null, endsAt: sleepTimerEndsAt };
+}
+
+export function subscribeSleepTimer(listener) {
+  sleepTimerListeners.add(listener);
+  listener(getSleepTimerState());
+  return () => sleepTimerListeners.delete(listener);
+}
+
 const audio = new Audio();
 audio.preload = 'auto';
 audio.playbackRate = 1;
