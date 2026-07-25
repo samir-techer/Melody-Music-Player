@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Melody — Library Diagnostics</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #F5F1EC; color: #1F1F1F; padding: 20px; max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin-top: 28px; border-bottom: 1px solid #EAE3DB; padding-bottom: 6px; }
+  pre { background: #fff; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .ok { color: #1a7a1a; }
+  .warn { color: #b45309; }
+  .err { color: #c0392b; font-weight: 600; }
+  button { padding: 10px 16px; border-radius: 999px; border: none; background: #232323; color: #F5F1EC; font-weight: 600; cursor: pointer; margin: 4px 6px 4px 0; }
+  input[type=file] { margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h1>Melody — Library Diagnostics</h1>
+  <p>Open this file directly on the same device/browser where the library problem is happening (served over http/https, not <code>file://</code>, since IndexedDB needs a real origin). It only reads data — it never deletes anything.</p>
+
+  <h2>1. Databases on this origin</h2>
+  <button id="list-dbs">List databases</button>
+  <pre id="dbs-out">(not run yet)</pre>
+
+  <h2>2. melody-db contents</h2>
+  <button id="inspect-db">Inspect melody-db</button>
+  <pre id="inspect-out">(not run yet)</pre>
+
+  <h2>3. Live test import</h2>
+  <p>Pick one audio file to run it through the exact same import pipeline the app uses, so any real error shows up here instead of silently.</p>
+  <input type="file" id="test-file" accept="audio/*" />
+  <pre id="import-out">(pick a file above)</pre>
+
+  <script type="module">
+    const dbsOut = document.getElementById('dbs-out');
+    const inspectOut = document.getElementById('inspect-out');
+    const importOut = document.getElementById('import-out');
+
+    function log(el, text, cls) {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      line.textContent = text;
+      el.appendChild(line);
+    }
+    function clear(el) { el.innerHTML = ''; }
+
+    document.getElementById('list-dbs').addEventListener('click', async () => {
+      clear(dbsOut);
+      if (typeof indexedDB.databases !== 'function') {
+        log(dbsOut, 'indexedDB.databases() is not supported in this browser — cannot enumerate. (Known melody-db is checked in step 2 regardless.)', 'warn');
+        return;
+      }
+      try {
+        const dbs = await indexedDB.databases();
+        if (!dbs.length) { log(dbsOut, 'No IndexedDB databases found on this origin at all.', 'err'); return; }
+        dbs.forEach((d) => log(dbsOut, `• ${d.name}  (version ${d.version})`, d.name === 'melody-db' ? 'ok' : ''));
+      } catch (err) {
+        log(dbsOut, 'Error listing databases: ' + err.message, 'err');
+      }
+    });
+
+    document.getElementById('inspect-db').addEventListener('click', async () => {
+      clear(inspectOut);
+      if (typeof indexedDB.databases === 'function') {
+        const existing = await indexedDB.databases();
+        if (!existing.some((d) => d.name === 'melody-db')) {
+          log(inspectOut, 'melody-db does not exist on this origin yet — not opening it (that would create an empty one). Run "List databases" above to see what does exist.', 'err');
+          return;
+        }
+      }
+      const req = indexedDB.open('melody-db');
+      req.onupgradeneeded = () => {
+        // Only reachable if melody-db genuinely doesn't exist (or the
+        // browser doesn't support databases() so we couldn't check above).
+        log(inspectOut, 'melody-db did not exist — this click just created an empty one. If you expected existing songs, they are not on melody-db under this browser profile/origin.', 'err');
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        log(inspectOut, `Opened melody-db, version ${db.version}`, 'ok');
+        log(inspectOut, `Object stores: ${Array.from(db.objectStoreNames).join(', ') || '(none)'}`);
+        if (!db.objectStoreNames.contains('songs')) {
+          log(inspectOut, 'No "songs" object store present — schema mismatch.', 'err');
+          db.close();
+          return;
+        }
+        const tx = db.transaction('songs', 'readonly');
+        const countReq = tx.objectStore('songs').count();
+        countReq.onsuccess = () => {
+          log(inspectOut, `songs store record count: ${countReq.result}`, countReq.result > 0 ? 'ok' : 'warn');
+          const getAllReq = tx.objectStore('songs').getAll();
+          getAllReq.onsuccess = () => {
+            const songs = getAllReq.result || [];
+            songs.slice(0, 5).forEach((s) => log(inspectOut, `  - ${s.title || '(no title)'} — ${s.artist || '(no artist)'} [id=${s.id}]`));
+            if (songs.length > 5) log(inspectOut, `  ...and ${songs.length - 5} more`);
+            db.close();
+          };
+        };
+      };
+      req.onerror = () => log(inspectOut, 'Error opening melody-db: ' + req.error, 'err');
+      req.onblocked = () => log(inspectOut, 'Open blocked — another tab with Melody open may be holding the connection. Close other Melody tabs and retry.', 'warn');
+    });
+
+    document.getElementById('test-file').addEventListener('change', async (e) => {
+      clear(importOut);
+      const file = e.target.files[0];
+      if (!file) return;
+      log(importOut, `Selected: ${file.name} (${file.type || 'unknown type'}, ${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+      try {
+        const { importFiles } = await import('./js/services/import-service.js');
+        log(importOut, 'import-service.js module loaded OK', 'ok');
+        const summary = await importFiles([file], {
+          onProgress: (p) => log(importOut, `progress: ${p.status}${p.error ? ' — ' + p.error.message : ''}`, p.status === 'failed' ? 'err' : ''),
+        });
+        log(importOut, `Result: ${JSON.stringify(summary)}`, summary.imported ? 'ok' : 'err');
+      } catch (err) {
+        log(importOut, 'FAILED to even load/run the import pipeline: ' + (err?.stack || err), 'err');
+      }
+    });
+  </script>
+</body>
+</html>
