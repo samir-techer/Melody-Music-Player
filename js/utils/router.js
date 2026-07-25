@@ -1,120 +1,94 @@
 /**
  * router.js
- * Minimal view controller for a single-page app shell.
- * Views are plain functions that return an HTMLElement. The router swaps
- * the contents of #app-root and manages a small fade transition so page
- * changes feel smooth instead of jarring.
+ * Minimal in-memory router for Melody's single-page shell. Screens are
+ * plain functions that build and return a detached DOM element
+ * (`async function renderXScreen(params) -> HTMLElement`); this module owns
+ * mounting that element into #app-root, tearing down whatever was there
+ * before (calling its `_onLeave` cleanup if one was attached), and gating
+ * navigation behind auth/route guards.
  */
 
-const routes = new Map();
-const guardedRoutes = new Set();
-const routeGuards = new Map(); // name -> async () => boolean ("may this render proceed?")
 let rootEl = null;
-let currentName = null;
-let authGuardFn = null; // () => boolean — returns true if the current session is authenticated
+let activeRoute = null;
+let activeEl = null;
+let authGuard = () => true;
+const routes = new Map();
 
-/**
- * `guard`, if provided, is an async function re-checked on every single
- * navigation to this route (never cached) — used for role-gated screens
- * like Admin, where "requiresAuth" (signed in at all) isn't strict enough
- * and the check must come from a live Firestore-verified source, not a
- * DOM/button-visibility assumption. Returning false redirects to Home
- * before the route's render function ever runs, so no route-specific
- * data is fetched for someone who fails the guard.
- */
-export function registerRoute(name, renderFn, { requiresAuth = false, guard = null } = {}) {
-  routes.set(name, renderFn);
-  if (requiresAuth) guardedRoutes.add(name);
-  if (guard) routeGuards.set(name, guard);
-}
-
+/** Called once at boot with the element routes render into. */
 export function initRouter(root) {
   rootEl = root;
 }
 
 /**
- * Wires up the auth check used by guarded routes (see registerRoute's
- * `requiresAuth` option). Set once from app.js after Firebase auth is
- * ready. Kept generic/decoupled here so router.js has no direct
- * dependency on the auth service.
+ * Registers a route.
+ * options:
+ *   requiresAuth: boolean        — bounce to 'login' if the auth guard fails
+ *   guard: async () => boolean   — extra check (e.g. admin-only); on failure
+ *                                  the navigation is redirected to 'home'
  */
-export function setAuthGuard(fn) {
-  authGuardFn = fn;
+export function registerRoute(name, renderFn, options = {}) {
+  routes.set(name, { renderFn, ...options });
 }
 
+/** Supplies the function used to answer "is someone signed in right now?". */
+export function setAuthGuard(fn) {
+  authGuard = fn;
+}
+
+/** The currently-mounted route's name, or null before the first navigate(). */
+export function currentRoute() {
+  return activeRoute;
+}
+
+/**
+ * Navigates to `name`, running any auth/route guards first. Cleans up the
+ * outgoing screen (via its `_onLeave`, if present) and mounts the new one.
+ */
 export async function navigate(name, params = {}) {
-  if (!rootEl) throw new Error('Router not initialized — call initRouter(root) first.');
-
-  if (guardedRoutes.has(name) && authGuardFn && !authGuardFn()) {
-    console.warn(`[Melody] Blocked navigation to guarded route "${name}" — user is not authenticated.`);
-    name = 'login';
-  }
-
-  const routeGuard = routeGuards.get(name);
-  if (routeGuard) {
-    const allowed = await routeGuard();
-    if (!allowed) {
-      console.warn(`[Melody] Blocked navigation to guarded route "${name}" — route guard denied access.`);
-      name = 'home';
-    }
-  }
-
-  const renderFn = routes.get(name);
-  if (!renderFn) throw new Error(`No route registered for "${name}"`);
-
-  // Entering/leaving the full player gets a fluid morph-style transition
-  // (mini player <-> full player) via the View Transitions API when the
-  // browser supports it; every other navigation keeps the plain fade.
-  const isPlayerTransition = name === 'player' || currentName === 'player';
-  const canUseViewTransition = isPlayerTransition && typeof document.startViewTransition === 'function';
-
-  if (canUseViewTransition) {
-    const outgoing = rootEl.firstElementChild;
-    if (outgoing?._onLeave) {
-      try { outgoing._onLeave(); } catch (err) { console.error('[Melody] Screen cleanup threw:', err); }
-    }
-    const transition = document.startViewTransition(async () => {
-      rootEl.innerHTML = '';
-      const view = await renderFn(params);
-      rootEl.appendChild(view);
-      currentName = name;
-    });
-    await transition.finished.catch(() => {});
+  const route = routes.get(name);
+  if (!route) {
+    console.error(`[Melody] Router: no route registered for "${name}".`);
     return;
   }
 
-  // Give the outgoing screen a chance to clean up (e.g. unsubscribe from
-  // player-service) before its DOM is discarded. A screen opts in by
-  // setting `element._onLeave = fn` when it renders.
-  const outgoing = rootEl.firstElementChild;
-  if (outgoing?._onLeave) {
-    try { outgoing._onLeave(); } catch (err) { console.error('[Melody] Screen cleanup threw:', err); }
+  if (route.requiresAuth && !authGuard()) {
+    if (name !== 'login') {
+      return navigate('login');
+    }
   }
 
-  // Fade out current screen
-  if (outgoing) {
-    outgoing.style.transition = 'opacity 180ms ease';
-    outgoing.style.opacity = '0';
-    await wait(160);
+  if (route.guard) {
+    let allowed = false;
+    try {
+      allowed = await route.guard();
+    } catch (err) {
+      console.error(`[Melody] Router: guard for "${name}" threw — denying access.`, err);
+      allowed = false;
+    }
+    if (!allowed) {
+      if (name !== 'home') {
+        return navigate('home');
+      }
+      // Guard on 'home' itself failing would loop — fall through and
+      // render it anyway rather than hang navigation entirely.
+    }
   }
 
-  rootEl.innerHTML = '';
-  const view = await renderFn(params);
-  rootEl.appendChild(view);
-  currentName = name;
+  const el = await route.renderFn(params);
 
-  // Fade in new screen
-  requestAnimationFrame(() => {
-    view.style.opacity = '0';
-    view.style.transition = 'opacity 220ms ease';
-    requestAnimationFrame(() => { view.style.opacity = '1'; });
-  });
-}
+  if (activeEl && typeof activeEl._onLeave === 'function') {
+    try {
+      activeEl._onLeave();
+    } catch (err) {
+      console.error(`[Melody] Router: _onLeave for "${activeRoute}" threw.`, err);
+    }
+  }
 
-export function currentRoute() {
-  return currentName;
-}
+  if (rootEl) {
+    rootEl.innerHTML = '';
+    if (el) rootEl.appendChild(el);
+  }
 
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  activeRoute = name;
+  activeEl = el || null;
 }

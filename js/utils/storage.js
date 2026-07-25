@@ -1,104 +1,81 @@
 /**
  * storage.js
- * Simple key/value helpers over the shared "kv" object store (see db.js).
- * Used for app state (nickname, theme, flags) — not for song data, which
- * lives in library-service.js.
+ * Small async key/value wrapper over localStorage. Two flavors:
+ *   - getItem/setItem        — app-wide settings (theme, EQ preset, queue…)
+ *   - getUserItem/setUserItem — namespaced per signed-in uid (nickname,
+ *                               hasSeenGreeting, etc.) so a second account
+ *                               signing in on the same device never reads
+ *                               the first account's cached values.
+ * Everything is async (returns Promises) even though localStorage itself is
+ * synchronous — callers already `await` these, and it keeps the door open
+ * to swapping the backing store later without touching call sites.
  */
 
-import { getDB, KV_STORE } from './db.js';
+const PREFIX = 'melody:';
+const USER_PREFIX = 'melody:user:';
 
-/**
- * Get a value from the kv store. Falls back to localStorage if IndexedDB
- * is unavailable (older WebViews on some Android builds).
- */
-export async function getItem(key) {
-  try {
-    const db = await getDB();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(KV_STORE, 'readonly');
-      const req = tx.objectStore(KV_STORE).get(key);
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.warn('IndexedDB unavailable, falling back to localStorage', err);
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  }
+function globalKey(key) {
+  return `${PREFIX}${key}`;
 }
-
-/** Set a value in the kv store. */
-export async function setItem(key, value) {
-  try {
-    const db = await getDB();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(KV_STORE, 'readwrite');
-      tx.objectStore(KV_STORE).put(value, key);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    console.warn('IndexedDB unavailable, falling back to localStorage', err);
-    localStorage.setItem(key, JSON.stringify(value));
-    return true;
-  }
-}
-
-/** Remove a value from the kv store. */
-export async function removeItem(key) {
-  try {
-    const db = await getDB();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(KV_STORE, 'readwrite');
-      tx.objectStore(KV_STORE).delete(key);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    localStorage.removeItem(key);
-    return true;
-  }
-}
-
-/* -------------------------------------------------------------------- */
-/*  User-scoped keys                                                     */
-/* -------------------------------------------------------------------- */
-// Account-specific values (nickname, "has seen greeting", etc.) must NOT
-// live under a plain global key like "nickname" — on a shared/reused
-// device, signing out of Account A and into Account B would otherwise
-// still read Account A's cached nickname and "hasSeenGreeting" flag,
-// silently skipping onboarding for the new account or greeting them with
-// the wrong name. Every per-account read/write goes through these helpers
-// so the uid is always baked into the key.
 
 function userKey(uid, key) {
-  if (!uid) throw new Error(`[Melody] userKey("${key}") called without a uid.`);
-  return `user:${uid}:${key}`;
+  return `${USER_PREFIX}${uid}:${key}`;
 }
 
-export function getUserItem(uid, key) {
-  return getItem(userKey(uid, key));
+/** Reads and JSON-parses a value, returning null if missing or unreadable. */
+export async function getItem(key) {
+  try {
+    const raw = localStorage.getItem(globalKey(key));
+    return raw === null ? null : JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[Melody] storage.getItem("${key}") failed:`, err);
+    return null;
+  }
 }
 
-export function setUserItem(uid, key, value) {
-  return setItem(userKey(uid, key), value);
+/** JSON-serializes and stores a value under the app-wide namespace. */
+export async function setItem(key, value) {
+  try {
+    localStorage.setItem(globalKey(key), JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[Melody] storage.setItem("${key}") failed:`, err);
+  }
 }
 
-export function removeUserItem(uid, key) {
-  return removeItem(userKey(uid, key));
+/** Reads a value scoped to a specific signed-in user. */
+export async function getUserItem(uid, key) {
+  if (!uid) return null;
+  try {
+    const raw = localStorage.getItem(userKey(uid, key));
+    return raw === null ? null : JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[Melody] storage.getUserItem("${uid}", "${key}") failed:`, err);
+    return null;
+  }
 }
 
-/**
- * Wipes every per-account cached value for `uid`. Called on sign-out so a
- * subsequent sign-in (same account or a different one, on the same
- * device) never reads stale onboarding state. Safe to call even if the
- * key list grows later — add new user-scoped keys to USER_SCOPED_KEYS.
- */
-const USER_SCOPED_KEYS = ['nickname', 'hasSeenGreeting'];
+/** Stores a value scoped to a specific signed-in user. */
+export async function setUserItem(uid, key, value) {
+  if (!uid) return;
+  try {
+    localStorage.setItem(userKey(uid, key), JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[Melody] storage.setUserItem("${uid}", "${key}") failed:`, err);
+  }
+}
 
+/** Wipes every cached value for one uid — called on sign-out. */
 export async function clearUserCache(uid) {
   if (!uid) return;
-  await Promise.all(
-    USER_SCOPED_KEYS.map((key) => removeUserItem(uid, key).catch(() => {})),
-  );
+  const prefix = `${USER_PREFIX}${uid}:`;
+  try {
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch (err) {
+    console.warn(`[Melody] storage.clearUserCache("${uid}") failed:`, err);
+  }
 }

@@ -1,64 +1,34 @@
 /**
  * filename-cleaner.js
- * Turns messy downloaded filenames into a clean "Title — Artist" guess.
- * This is a first pass used before the metadata engine (MusicBrainz / AcoustID)
- * confirms real tags — see js/services/metadata-service.js (upcoming module).
- *
- * Example:
- *   "Bruno_Mars_-505-song.mp3"  ->  { title: "505", artist: "Bruno Mars" }
+ * Best-effort title/artist guess from a raw filename, used as a fallback
+ * during import before (or when) ID3 tags and online lookup can fill the
+ * rest in. Handles the common "Artist - Title.mp3" convention plus messy
+ * underscores/dashes/bracketed tags from web downloads.
  */
 
-const NOISE_WORDS = [
-  'official', 'official audio', 'official video', 'official music video',
-  'lyrics', 'lyric video', 'audio', 'hd', '4k', '8k',
-  '320kbps', '128kbps', 'mp3', 'm4a', 'flac',
-  'video', 'full song', 'full track', 'clean', 'explicit',
-];
+const KNOWN_EXTENSIONS = /\.(mp3|m4a|aac|wav|flac|ogg|opus|wma)$/i;
 
-export function cleanFilename(rawName) {
-  let name = rawName.replace(/\.(mp3|flac|m4a|aac|wav|ogg)$/i, '');
+export function cleanFilename(filename) {
+  let name = String(filename || '').replace(KNOWN_EXTENSIONS, '');
 
-  // Underscores/dashes/dots used as spaces
-  name = name.replace(/[_.]+/g, ' ');
+  // Strip common download noise: [Official Video], (Lyrics), 320kbps, etc.
+  name = name
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\b\d{2,3}\s?kbps\b/gi, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  // Strip bracketed/parenthesized noise like (Official Video), [HD], etc.
-  name = name.replace(/[\(\[\{][^)\]\}]*[\)\]\}]/g, ' ');
-
-  // Strip known noise words (word-boundary, case-insensitive)
-  const noisePattern = new RegExp(`\\b(${NOISE_WORDS.join('|')})\\b`, 'gi');
-  name = name.replace(noisePattern, ' ');
-
-  // Strip long random ID-like tokens (8+ alphanumeric with mixed case/digits)
-  name = name.replace(/\b[a-zA-Z0-9]{9,}\b/g, ' ');
-
-  // Collapse duplicate dashes/spaces
-  name = name.replace(/-{2,}/g, '-');
-  name = name.replace(/\s{2,}/g, ' ').trim();
-  name = name.replace(/^-|-$/g, '').trim();
-
-  // Try "Artist - Title" or "Title - Artist" split on a single dash
-  const parts = name.split(/\s-\s|-(?=[A-Za-z])/).map((p) => p.trim()).filter(Boolean);
-
-  let title = name;
-  let artist = '';
-
-  if (parts.length >= 2) {
-    // Heuristic: assume "Artist - Title" ordering, the more common convention.
-    [artist, title] = [parts[0], parts.slice(1).join(' ')];
+  // "Artist - Title" (also tolerates en/em dashes)
+  const dashSplit = name.split(/\s[-–—]\s/);
+  if (dashSplit.length >= 2) {
+    const [artist, ...rest] = dashSplit;
+    const title = rest.join(' - ').trim();
+    if (artist.trim() && title) {
+      return { title, artist: artist.trim() };
+    }
   }
 
-  title = toTitleCase(title);
-  artist = toTitleCase(artist);
-
-  return { title: title || rawName, artist };
-}
-
-function toTitleCase(str) {
-  if (!str) return str;
-  return str
-    .toLowerCase()
-    .split(' ')
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  return { title: name || 'Unknown Title', artist: '' };
 }

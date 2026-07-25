@@ -1,69 +1,93 @@
 /**
  * confirm-dialog.js
- * A generic Confirm / Cancel bottom-sheet, reusing the same
- * .upgrade-dialog-overlay / .upgrade-dialog markup and CSS
- * (css/premium.css) as upgrade-dialog.js so it re-themes automatically
- * with Crimson Velvet / Royal Navy / Gold Elite like everything else.
- * Used by the Rewards Store before spending MP.
+ * General-purpose confirm/info dialogs, styled with the same
+ * .premium-modal-overlay / .premium-modal classes premium-screen.js's
+ * openComingSoonModal() already uses — no new CSS needed.
  */
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
+function buildOverlay({ emoji, title, message, actionsHtml }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'premium-modal-overlay';
+  overlay.innerHTML = `
+    <div class="premium-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <div class="modal-emoji">${emoji}</div>
+      <h2 id="confirm-dialog-title">${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      <div class="premium-modal-actions">${actionsHtml}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  return overlay;
+}
+
+function closeOverlay(overlay) {
+  overlay.classList.remove('open');
+  overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+  setTimeout(() => overlay.remove(), 400); // fallback in case transitionend never fires
+}
+
+/**
+ * Two-button confirm. Resolves true if the user confirms, false on cancel
+ * or backdrop dismiss.
+ */
 export function showConfirmDialog({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', cancelLabel = 'Cancel' } = {}) {
   return new Promise((resolve) => {
-    const existing = document.querySelector('.upgrade-dialog-overlay');
-    if (existing) existing.remove();
+    const overlay = buildOverlay({
+      emoji: '⚠️',
+      title,
+      message,
+      actionsHtml: `
+        <button type="button" class="btn-modal-primary" id="confirm-dialog-ok">${escapeHtml(confirmLabel)}</button>
+        <button type="button" class="btn-modal-secondary" id="confirm-dialog-cancel">${escapeHtml(cancelLabel)}</button>
+      `,
+    });
 
-    const overlay = document.createElement('div');
-    overlay.className = 'upgrade-dialog-overlay';
-    overlay.innerHTML = `
-      <div class="upgrade-dialog" role="dialog" aria-modal="true">
-        <h2>${title}</h2>
-        <p>${message}</p>
-        <button type="button" id="confirm-dialog-yes">${confirmLabel}</button>
-        <button type="button" id="confirm-dialog-no" style="background:transparent;color:var(--color-text-secondary);margin-top:8px;">${cancelLabel}</button>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
-
-    function close(result) {
-      overlay.classList.remove('open');
-      overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-      setTimeout(() => overlay.remove(), 400);
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      closeOverlay(overlay);
       resolve(result);
-    }
+    };
 
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
-    overlay.querySelector('#confirm-dialog-yes').addEventListener('click', () => close(true));
-    overlay.querySelector('#confirm-dialog-no').addEventListener('click', () => close(false));
+    overlay.querySelector('#confirm-dialog-ok').addEventListener('click', () => finish(true));
+    overlay.querySelector('#confirm-dialog-cancel').addEventListener('click', () => finish(false));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(false);
+    });
   });
 }
 
-/** Single-button informational variant — e.g. "What does Acoustic Mode do?" */
-export function showInfoDialog({ title = '', message = '', buttonLabel = 'Got it' } = {}) {
+/**
+ * Single-button acknowledgement dialog. Resolves once dismissed.
+ */
+export function showInfoDialog({ title = '', message = '', buttonLabel = 'Got it', emoji = 'ℹ️' } = {}) {
   return new Promise((resolve) => {
-    const existing = document.querySelector('.upgrade-dialog-overlay');
-    if (existing) existing.remove();
+    const overlay = buildOverlay({
+      emoji,
+      title,
+      message,
+      actionsHtml: `<button type="button" class="btn-modal-primary" id="confirm-dialog-ok">${escapeHtml(buttonLabel)}</button>`,
+    });
 
-    const overlay = document.createElement('div');
-    overlay.className = 'upgrade-dialog-overlay';
-    overlay.innerHTML = `
-      <div class="upgrade-dialog" role="dialog" aria-modal="true">
-        <h2>${title}</h2>
-        <p>${message}</p>
-        <button type="button" id="info-dialog-ok">${buttonLabel}</button>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
-
-    function close() {
-      overlay.classList.remove('open');
-      overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-      setTimeout(() => overlay.remove(), 400);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      closeOverlay(overlay);
       resolve();
-    }
+    };
 
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector('#info-dialog-ok').addEventListener('click', close);
+    overlay.querySelector('#confirm-dialog-ok').addEventListener('click', finish);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish();
+    });
   });
 }

@@ -1,33 +1,35 @@
 /**
  * toast.js
- * Small, non-blocking message shown at the bottom of the screen — used
- * for things like "Skipped a song that couldn't be played" without
- * interrupting playback or requiring a dismiss tap.
- *
- * Deliberately a single reused element so rapid messages (e.g. several
- * corrupted files in a row while auto-skipping) queue politely instead
- * of stacking duplicate DOM nodes.
+ * Single reused toast element (styled by css/toast.css's #melody-toast
+ * rules). One visible toast at a time — a new call replaces whatever's
+ * currently showing rather than queuing.
  */
 
-let toastEl = null;
+const DEFAULT_DURATION = 2600;
 let hideTimer = null;
 
-function ensureToastEl() {
-  if (toastEl) return toastEl;
-  toastEl = document.createElement('div');
-  toastEl.id = 'melody-toast';
-  toastEl.setAttribute('role', 'status');
-  toastEl.setAttribute('aria-live', 'polite');
-  document.body.appendChild(toastEl);
-  return toastEl;
+function getToastEl() {
+  let el = document.getElementById('melody-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'melody-toast';
+    document.body.appendChild(el);
+  }
+  return el;
 }
 
-export function showToast(message, duration = 3200) {
-  const el = ensureToastEl();
+/** Shows a brief message at the bottom of the screen. */
+export function showToast(message, duration = DEFAULT_DURATION) {
+  const el = getToastEl();
   el.textContent = message;
+
+  // Restart the transition cleanly even if a previous toast is mid-fade.
+  el.classList.remove('visible');
+  // Force reflow so the re-added class re-triggers the CSS transition.
+  void el.offsetWidth;
   el.classList.add('visible');
 
-  clearTimeout(hideTimer);
+  if (hideTimer) clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
     el.classList.remove('visible');
   }, duration);
