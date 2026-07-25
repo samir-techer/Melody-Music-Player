@@ -11,6 +11,7 @@ import {
   toggleShuffle, cycleRepeatMode, playFromQueue, removeFromQueue, moveInQueue,
   getAnalyserNode, saveQueueSnapshot, restoreQueueSnapshot, getQueueHistory,
   restoreQueueFromHistory, getSmartQueueSuggestions, addToQueue,
+  cyclePlaybackRate, getPlaybackRate, setSleepTimer, subscribeSleepTimer,
 } from '../services/player-service.js';
 import { isFavorite, toggleFavorite, subscribeFavorites } from '../services/favorites-service.js';
 import { hasPremiumAccess } from '../services/premium-service.js';
@@ -23,12 +24,17 @@ export async function renderPlayerScreen() {
   const el = document.createElement('div');
   el.className = 'screen player-screen';
   el.innerHTML = `
+    <div class="player-backdrop" id="player-backdrop" aria-hidden="true">
+      <img src="" alt="" id="player-backdrop-img" />
+    </div>
+
     <div class="player-topbar">
       <button id="player-back" aria-label="Minimize">︿</button>
       <span class="player-topbar-label">Now Playing</span>
       <div class="player-topbar-actions">
         <button id="lyrics-toggle" aria-label="Lyrics">Aa</button>
         ${hasPremiumAccess('Elite') ? '<button id="visualizer-toggle" aria-label="Visualizer">✨</button>' : ''}
+        <button id="share-toggle" aria-label="Share">⇪</button>
         <button id="queue-toggle" aria-label="Queue">☰</button>
       </div>
     </div>
@@ -94,6 +100,25 @@ export async function renderPlayerScreen() {
       <button id="btn-repeat" class="secondary-control" aria-label="Repeat">⟲</button>
     </div>
 
+    <div class="extra-controls">
+      <button class="extra-chip" id="speed-toggle" aria-label="Playback speed">1×</button>
+      <button class="extra-chip" id="sleep-timer-toggle" aria-label="Sleep timer">🌙 Sleep</button>
+      <button class="extra-chip" id="audio-processing-link" aria-label="Audio processing settings">🎚 Audio</button>
+    </div>
+
+    <div class="sleep-timer-sheet" id="sleep-timer-sheet" hidden>
+      <div class="sheet-handle"></div>
+      <h2>Sleep Timer</h2>
+      <div class="sleep-timer-options">
+        <button data-minutes="0">Off</button>
+        <button data-minutes="15">15 min</button>
+        <button data-minutes="30">30 min</button>
+        <button data-minutes="45">45 min</button>
+        <button data-minutes="60">1 hour</button>
+      </div>
+      <button class="sheet-close" id="sleep-timer-close">Close</button>
+    </div>
+
     <div class="queue-sheet" id="queue-sheet" hidden>
       <div class="queue-sheet-header">
         <h2>Up Next</h2>
@@ -114,6 +139,8 @@ export async function renderPlayerScreen() {
   const disc = el.querySelector('#vinyl-disc');
   const artImg = el.querySelector('#album-art-img');
   const albumArt = el.querySelector('#album-art');
+  const backdrop = el.querySelector('#player-backdrop');
+  const backdropImg = el.querySelector('#player-backdrop-img');
   const titleEl = el.querySelector('#now-playing-title');
   const artistEl = el.querySelector('#now-playing-artist');
   const seekBar = el.querySelector('#seek-bar');
@@ -133,6 +160,38 @@ export async function renderPlayerScreen() {
   const adOverlay = el.querySelector('#ad-overlay');
   const adProgressFill = el.querySelector('#ad-progress-fill');
   const adRemaining = el.querySelector('#ad-remaining');
+  const speedBtn = el.querySelector('#speed-toggle');
+  const sleepTimerBtn = el.querySelector('#sleep-timer-toggle');
+  const sleepTimerSheet = el.querySelector('#sleep-timer-sheet');
+
+  // ---------- Dynamic color: sample the album art's average color once
+  // it loads and use it to tint the blurred backdrop, so the ambience
+  // shifts per-song instead of staying a flat static color. A tiny
+  // offscreen canvas read, not a full palette extraction — cheap and
+  // good enough for a soft background glow. ----------
+  const swatchCanvas = document.createElement('canvas');
+  swatchCanvas.width = 16;
+  swatchCanvas.height = 16;
+  const swatchCtx = swatchCanvas.getContext('2d', { willReadFrequently: true });
+
+  function applyDynamicColorFrom(imgEl) {
+    try {
+      swatchCtx.drawImage(imgEl, 0, 0, 16, 16);
+      const { data } = swatchCtx.getImageData(0, 0, 16, 16);
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        r += data[i]; g += data[i + 1]; b += data[i + 2];
+        count++;
+      }
+      r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+      el.style.setProperty('--dynamic-color', `rgb(${r}, ${g}, ${b})`);
+    } catch (err) {
+      // Cross-origin artwork (e.g. an external URL without CORS headers)
+      // taints the canvas — fall back to the theme's own accent instead
+      // of a dynamic one rather than throwing.
+      el.style.removeProperty('--dynamic-color');
+    }
+  }
 
   let isDraggingSeek = false;
   let latestState = null;
@@ -199,6 +258,8 @@ export async function renderPlayerScreen() {
   }
   rafId = requestAnimationFrame(animateSeekBar);
 
+  artImg.addEventListener('load', () => applyDynamicColorFrom(artImg));
+
   buildWaveformBars(null);
 
   const queueToggleBtn = el.querySelector('#queue-toggle');
@@ -227,6 +288,7 @@ export async function renderPlayerScreen() {
     artistEl.textContent = song ? song.artist : 'Import some music to get started';
     artImg.src = state.artUrl;
     artImg.alt = song ? `${song.title} album art` : '';
+    backdropImg.src = state.artUrl || '';
 
     playPauseBtn.classList.toggle('is-playing', state.isPlaying);
     playPauseBtn.setAttribute('aria-label', state.isPlaying ? 'Pause' : 'Play');
@@ -337,6 +399,8 @@ export async function renderPlayerScreen() {
     unsubscribe();
     unsubscribeFavs();
     unsubscribeAd();
+    unsubscribeSleepTimer();
+    if (sleepTimerInterval) clearInterval(sleepTimerInterval);
     if (rafId) cancelAnimationFrame(rafId);
     if (vizRafId) cancelAnimationFrame(vizRafId);
   };
@@ -358,6 +422,64 @@ export async function renderPlayerScreen() {
     if (!queueSheet.hidden && latestState) renderQueue(latestState);
   });
   el.querySelector('#queue-close').addEventListener('click', () => { queueSheet.hidden = true; });
+
+  // ---------- Share ----------
+  el.querySelector('#share-toggle').addEventListener('click', async () => {
+    const song = latestState?.currentSong;
+    if (!song) { showToast('Nothing playing to share yet.'); return; }
+    const text = `${song.title} — ${song.artist} (via Melody)`;
+    if (navigator.share) {
+      try { await navigator.share({ title: song.title, text }); }
+      catch (err) { /* user cancelled the native share sheet — not an error */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied to clipboard.');
+    } catch (err) {
+      showToast('Couldn\u2019t share — try again.');
+    }
+  });
+
+  // ---------- Playback speed ----------
+  speedBtn.textContent = formatRate(getPlaybackRate());
+  speedBtn.addEventListener('click', () => {
+    const rate = cyclePlaybackRate();
+    speedBtn.textContent = formatRate(rate);
+  });
+
+  // ---------- Sleep timer ----------
+  let sleepTimerInterval = null;
+  const unsubscribeSleepTimer = subscribeSleepTimer(({ active, endsAt }) => {
+    sleepTimerBtn.classList.toggle('active', active);
+    if (sleepTimerInterval) { clearInterval(sleepTimerInterval); sleepTimerInterval = null; }
+    if (!active) {
+      sleepTimerBtn.innerHTML = '🌙 Sleep';
+      return;
+    }
+    const updateLabel = () => {
+      const remainingMin = Math.max(0, Math.ceil((endsAt - Date.now()) / 60000));
+      sleepTimerBtn.innerHTML = `🌙 ${remainingMin}m`;
+    };
+    updateLabel();
+    sleepTimerInterval = setInterval(updateLabel, 15000);
+  });
+  sleepTimerBtn.addEventListener('click', () => { sleepTimerSheet.hidden = false; });
+  el.querySelector('#sleep-timer-close').addEventListener('click', () => { sleepTimerSheet.hidden = true; });
+  el.querySelectorAll('#sleep-timer-sheet .sleep-timer-options button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const minutes = Number(btn.dataset.minutes);
+      setSleepTimer(minutes);
+      showToast(minutes > 0 ? `Sleep timer set for ${minutes} minutes.` : 'Sleep timer turned off.');
+      sleepTimerSheet.hidden = true;
+    });
+  });
+
+  // ---------- Audio processing shortcut (Equalizer / Crossfade / Gapless /
+  // Acoustic Mode / Clean Bass all already live in Settings — this is a
+  // direct entry point into that existing panel rather than a duplicate
+  // implementation, so behavior can't drift out of sync between screens. ----------
+  el.querySelector('#audio-processing-link').addEventListener('click', () => navigate('settings'));
 
   seekBar.addEventListener('input', () => {
     updateSeekProgress();
@@ -540,6 +662,12 @@ function formatTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
+}
+
+function formatRate(rate) {
+  // Show "1×" rather than "1×.0", but keep the decimal for fractional
+  // speeds like "1.25×"/"0.75×".
+  return `${Number.isInteger(rate) ? rate : rate}×`;
 }
 
 function escapeHtml(str) {

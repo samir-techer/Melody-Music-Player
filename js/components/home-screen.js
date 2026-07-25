@@ -1,8 +1,14 @@
 /**
  * home-screen.js
- * Landing screen after onboarding. Renders the structural shell (header,
- * search, sections, bottom nav, mini player placeholder) and now wires up
+ * Melody's premium dashboard. Renders the structural shell (header, search,
+ * hero "Continue Listening" card, Recently Played / Quick Picks rows,
+ * library quick-access grid, MP Store + Premium shortcuts) and wires up
  * real music import + a live library render pulled from IndexedDB.
+ *
+ * Every data source here is real and already existed elsewhere in the app
+ * (library-service, history-service, achievements-service, premium-service)
+ * — this file only arranges it into a richer dashboard, it doesn't invent
+ * new backend state.
  */
 
 import { getUserItem } from '../utils/storage.js';
@@ -12,19 +18,21 @@ import { importFiles } from '../services/import-service.js';
 import { getAllSongs } from '../services/library-service.js';
 import { loadQueue } from '../services/player-service.js';
 import { getArtworkUrl } from '../services/artwork-service.js';
+import { getRecentlyPlayedEntries } from '../services/history-service.js';
 import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
 import { getCurrentUser } from '../services/auth-service.js';
 import { getEffectivePlan } from '../services/premium-service.js';
 import { getMelodyPoints } from '../services/achievements-service.js';
+import { showToast } from '../utils/toast.js';
 
 const LIBRARY_LINKS = [
-  { key: 'albums', label: 'Albums' },
-  { key: 'artists', label: 'Artists' },
-  { key: 'playlists', label: 'Playlists' },
-  { key: 'folders', label: 'Folders' },
-  { key: 'favorites', label: 'Favorites ❤️' },
-  { key: 'recent', label: 'Recently Played' },
+  { key: 'albums', label: 'Albums', icon: '◈' },
+  { key: 'artists', label: 'Artists', icon: '♪' },
+  { key: 'playlists', label: 'Playlists', icon: '☰' },
+  { key: 'folders', label: 'Folders', icon: '▢' },
+  { key: 'favorites', label: 'Favorites', icon: '♥' },
+  { key: 'recent', label: 'Recently Played', icon: '↻' },
 ];
 
 export async function renderHomeScreen() {
@@ -64,6 +72,27 @@ export async function renderHomeScreen() {
     songs = [];
   }
 
+  const songById = new Map(songs.map((s) => [s.id, s]));
+
+  // ---------- Continue Listening / Recently Played (real playback history) ----------
+  let recentlyPlayedSongs = [];
+  try {
+    const entries = await getRecentlyPlayedEntries();
+    recentlyPlayedSongs = entries.map((e) => songById.get(e.id)).filter(Boolean);
+  } catch (err) {
+    console.error('[Melody] Home: failed to load play history — continuing without it.', err);
+  }
+  const continueListeningSong = recentlyPlayedSongs[0] || null;
+  const recentlyPlayedRow = recentlyPlayedSongs.slice(1, 11);
+
+  // ---------- Quick Picks: most-played songs, falling back to whatever's
+  // newest for a library that's too fresh to have play counts yet. ----------
+  const quickPicks = [...songs]
+    .sort((a, b) => (b.playCount || 0) - (a.playCount || 0))
+    .filter((s) => (s.playCount || 0) > 0)
+    .slice(0, 10);
+  const quickPicksFallback = quickPicks.length ? quickPicks : songs.slice(0, 10);
+
   const el = document.createElement('div');
   el.className = 'screen home-screen';
   el.innerHTML = `
@@ -73,9 +102,15 @@ export async function renderHomeScreen() {
           <h1>Good ${timeLabel}, ${escapeHtml(nickname)} ${emoji}${badgeHtml}</h1>
           <p class="subline">Let's find your next favorite song.</p>
         </div>
-        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle appearance">
-          ${themeIcon(currentThemeMode)}
-        </button>
+        <div class="home-header-actions">
+          <button class="icon-btn" id="notif-bell" aria-label="Notifications" title="Notifications">
+            🔔<span class="notif-dot" id="notif-dot" hidden></span>
+          </button>
+          <button class="icon-btn" id="profile-btn" aria-label="Profile" title="Profile">👤</button>
+          <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle appearance">
+            ${themeIcon(currentThemeMode)}
+          </button>
+        </div>
       </div>
       <button class="mp-pill" id="mp-pill" type="button" title="View Achievements">⭐ ${safeMelodyPoints().toLocaleString()} MP</button>
     </header>
@@ -85,12 +120,38 @@ export async function renderHomeScreen() {
       <input type="search" placeholder="Search songs, artists, albums…" id="home-search-input" readonly />
     </div>
 
+    ${continueListeningSong ? `
+    <section class="section" id="section-continue">
+      <div class="section-heading"><h2>Continue Listening</h2></div>
+      <div class="hero-card" id="continue-hero" data-id="${continueListeningSong.id}">
+        <div class="hero-art" id="continue-hero-art">${placeholderArtSvg()}</div>
+        <div class="hero-info">
+          <p class="hero-eyebrow">Pick up where you left off</p>
+          <p class="hero-title">${escapeHtml(continueListeningSong.title)}</p>
+          <p class="hero-meta">${escapeHtml(continueListeningSong.artist)}</p>
+        </div>
+        <button class="hero-play" aria-label="Play">▶</button>
+      </div>
+    </section>` : ''}
+
+    ${recentlyPlayedRow.length ? `
+    <section class="section" id="section-recently-played">
+      <div class="section-heading"><h2>Recently Played</h2></div>
+      ${renderCardRow(recentlyPlayedRow, 'recently-played-row')}
+    </section>` : ''}
+
+    ${quickPicksFallback.length ? `
+    <section class="section" id="section-quick-picks">
+      <div class="section-heading"><h2>Quick Picks</h2></div>
+      ${renderCardRow(quickPicksFallback, 'quick-picks-row')}
+    </section>` : ''}
+
     <section class="section" id="section-recent">
       <div class="section-heading">
         <h2>Recently Added</h2>
         ${songs.length ? '<span class="see-all">See all</span>' : ''}
       </div>
-      ${renderRecentRow(songs)}
+      ${renderCardRow(songs.slice(0, 10), 'recent-row')}
     </section>
 
     <section class="section" id="section-library">
@@ -100,10 +161,25 @@ export async function renderHomeScreen() {
       <div class="grid-links">
         ${LIBRARY_LINKS.map((l) => `
           <button class="grid-link" data-key="${l.key}">
-            <span class="icon" aria-hidden="true">●</span>
+            <span class="tile-icon" aria-hidden="true">${l.icon}</span>
             <span>${l.label}</span>
           </button>
         `).join('')}
+      </div>
+    </section>
+
+    <section class="section" id="section-promo">
+      <div class="promo-row">
+        <button class="promo-card promo-card-store" id="mp-store-shortcut">
+          <span class="promo-icon" aria-hidden="true">🛍️</span>
+          <span class="promo-label">MP Store</span>
+          <span class="promo-sub">Themes &amp; rewards</span>
+        </button>
+        <button class="promo-card promo-card-premium" id="premium-shortcut">
+          <span class="promo-icon" aria-hidden="true">⭐</span>
+          <span class="promo-label">Go Premium</span>
+          <span class="promo-sub">${effectivePlan === 'Free' ? 'Unlock more' : 'Manage plan'}</span>
+        </button>
       </div>
     </section>
 
@@ -131,6 +207,19 @@ export async function renderHomeScreen() {
 
   // ---------- Melody Points quick-glance ----------
   el.querySelector('#mp-pill').addEventListener('click', () => navigate('achievements'));
+
+  // ---------- Notifications / Profile ----------
+  // Notification center isn't built yet — this is a real, honest
+  // placeholder (not a dead button) rather than pretending the feature
+  // exists. Swap for `navigate('notifications')` once that screen lands.
+  el.querySelector('#notif-bell').addEventListener('click', () => {
+    showToast('Notifications are coming in a future update.');
+  });
+  el.querySelector('#profile-btn').addEventListener('click', () => navigate('settings'));
+
+  // ---------- MP Store / Premium shortcuts ----------
+  el.querySelector('#mp-store-shortcut').addEventListener('click', () => navigate('rewards-store'));
+  el.querySelector('#premium-shortcut').addEventListener('click', () => navigate('premium'));
 
   // ---------- Import wiring ----------
   const fileInput = el.querySelector('#import-file-input');
@@ -177,7 +266,7 @@ export async function renderHomeScreen() {
   el.querySelectorAll('.grid-link').forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.dataset.key;
-      if (key === 'playlists' || key === 'folders') {
+      if (key === 'playlists') {
         alert(`"${btn.textContent.trim()}" is coming in a future build pass.`);
         return;
       }
@@ -189,25 +278,46 @@ export async function renderHomeScreen() {
     });
   });
 
-  // ---------- Tap a song card to start playing it ----------
-  const recentSongs = songs.slice(0, 10);
+  // ---------- Continue Listening hero ----------
+  const heroCard = el.querySelector('#continue-hero');
+  if (heroCard) {
+    heroCard.addEventListener('click', () => playSongById(heroCard.dataset.id));
+    if (continueListeningSong) {
+      getArtworkUrl(continueListeningSong).then((url) => {
+        if (!url || url.startsWith('data:image/svg+xml')) return;
+        el.querySelector('#continue-hero-art').innerHTML = `<img src="${url}" alt="" />`;
+      });
+    }
+  }
+
+  // ---------- Any media-card row: play from the full library queue,
+  // positioned at whichever song was tapped. ----------
+  function playSongById(id) {
+    const idx = songs.findIndex((s) => s.id === id);
+    if (idx === -1) return;
+    loadQueue(songs, idx);
+    navigate('player');
+  }
+
   el.querySelectorAll('.media-card[data-id]').forEach((card) => {
-    card.addEventListener('click', () => {
-      const songIndex = recentSongs.findIndex((s) => s.id === card.dataset.id);
-      if (songIndex === -1) return;
-      loadQueue(recentSongs, songIndex);
-      navigate('player');
-    });
+    card.addEventListener('click', () => playSongById(card.dataset.id));
   });
 
-  // Fill in real embedded artwork for recent cards once resolved, without
-  // blocking the initial render (placeholder shows immediately).
-  recentSongs.forEach((song) => {
-    const card = el.querySelector(`.media-card[data-id="${song.id}"] .art`);
-    if (!card) return;
+  // Fill in real embedded artwork for every card shelf once resolved,
+  // without blocking the initial render (placeholder shows immediately).
+  // Deduped so a song appearing in multiple shelves (e.g. also Recently
+  // Added) only triggers one artwork lookup.
+  const cardSongIds = new Set(
+    [...el.querySelectorAll('.media-card[data-id]')].map((c) => c.dataset.id)
+  );
+  cardSongIds.forEach((id) => {
+    const song = songById.get(id);
+    if (!song) return;
     getArtworkUrl(song).then((url) => {
       if (!url || url.startsWith('data:image/svg+xml')) return; // keep the crisp inline placeholder
-      card.innerHTML = `<img src="${url}" alt="" />`;
+      el.querySelectorAll(`.media-card[data-id="${id}"] .art`).forEach((art) => {
+        art.innerHTML = `<img src="${url}" alt="" />`;
+      });
     });
   });
 
@@ -221,7 +331,7 @@ export async function renderHomeScreen() {
   return el;
 }
 
-function renderRecentRow(songs) {
+function renderCardRow(songs, rowId) {
   if (songs.length === 0) {
     return `
       <div class="empty-state">
@@ -231,10 +341,9 @@ function renderRecentRow(songs) {
     `;
   }
 
-  const recent = songs.slice(0, 10);
   return `
-    <div class="card-row" id="recent-row">
-      ${recent.map((song) => `
+    <div class="card-row" id="${rowId}">
+      ${songs.map((song) => `
         <div class="media-card" data-id="${song.id}">
           <div class="art">${song.coverArt ? '' : placeholderArtSvg()}</div>
           <div class="title">${escapeHtml(song.title)}</div>
