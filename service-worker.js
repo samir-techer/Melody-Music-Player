@@ -56,6 +56,11 @@ const APP_SHELL = [
   './js/utils/toast.js',
   './js/utils/upgrade-dialog.js',
   './js/utils/elite-startup.js',
+  './js/utils/confirm-dialog.js',
+  './js/utils/theme-fade.js',
+  './js/utils/ripple.js',
+  './js/utils/reward-popup.js',
+  './js/utils/soundcloud-track-card.js',
 
   './js/services/theme-service.js',
   './js/services/import-service.js',
