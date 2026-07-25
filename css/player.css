@@ -129,7 +129,7 @@
   font-size: var(--text-sm);
 }
 
-/* ---------- Seek bar ---------- */
+/* ---------- Seek bar / waveform ---------- */
 
 .seek-area {
   display: flex;
@@ -137,52 +137,129 @@
   gap: var(--space-1);
 }
 
-/* Waveform texture: a repeating pattern of thin bars at varying heights,
-   painted once as a background-image so no extra DOM/JS is needed. The
-   played portion is revealed in solid --color-accent via the linear-
-   gradient progress mask below (driven by the existing --progress custom
-   property JS already sets on this element for the old flat bar). */
+.waveform {
+  position: relative;
+  height: 36px;
+  --progress: 0%;
+}
+
+.waveform-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wf-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-divider);
+  transform: scaleY(1);
+  transition: transform var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Colored copy of the exact same bars, revealed left-to-right by width so
+   the "played" portion sweeps forward smoothly instead of snapping — a
+   real animated fill rather than a static mask. */
+.waveform-fill {
+  position: absolute;
+  inset: 0;
+  width: var(--progress);
+  overflow: hidden;
+  transition: width 150ms linear;
+  pointer-events: none;
+}
+
+.waveform-fill .waveform-track { position: absolute; inset: 0; }
+.waveform-fill .wf-bar { background: var(--color-accent); }
+
+/* Soft glow right at the leading edge of the played portion. */
+.waveform-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  width: 16px;
+  background: linear-gradient(90deg, transparent, var(--color-accent) 90%);
+  filter: blur(3px);
+  opacity: 0.55;
+}
+
+/* Playhead: a small glowing dot riding the progress edge, only pulsing
+   while audio is actually playing. */
+.waveform-playhead {
+  position: absolute;
+  top: 50%;
+  left: var(--progress);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  transform: translate(-50%, -50%) scale(0.9);
+  opacity: 0.85;
+  transition: left 150ms linear, opacity var(--duration-fast) var(--ease-standard);
+  pointer-events: none;
+}
+
+.waveform.is-playing .waveform-playhead {
+  animation: waveform-pulse 1.6s ease-in-out infinite;
+}
+
+/* While actively playing, gently breathe the bars right around the
+   playhead so the bar reads as "alive" rather than a static image —
+   cheap to run since it's a handful of already-composited transforms. */
+.waveform.is-playing .waveform-fill .wf-bar:nth-last-child(-n+3) {
+  animation: waveform-bar-breathe 900ms ease-in-out infinite alternate;
+}
+.waveform.is-playing .waveform-fill .wf-bar:nth-last-child(2) { animation-delay: 120ms; }
+.waveform.is-playing .waveform-fill .wf-bar:nth-last-child(1) { animation-delay: 240ms; }
+
+@keyframes waveform-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.9); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 22%, transparent); }
+  50% { transform: translate(-50%, -50%) scale(1.15); box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-accent) 12%, transparent); }
+}
+
+@keyframes waveform-bar-breathe {
+  from { transform: scaleY(1); }
+  to { transform: scaleY(1.18); }
+}
+
+/* Real interactive control sits transparent on top for dragging/
+   accessibility — visuals are entirely handled by the waveform above. */
 #seek-bar {
   -webkit-appearance: none;
   appearance: none;
+  position: relative;
   width: 100%;
-  height: 32px;
+  height: 36px;
+  margin-top: -36px;
   border-radius: var(--radius-sm);
   outline: none;
-  --progress: 0%;
-  background-color: transparent;
-  background-image:
-    linear-gradient(90deg, var(--color-accent) 0 var(--progress), var(--color-divider) var(--progress) 100%);
-  background-size: 3px 100%;
-  background-repeat: repeat-x;
-  background-position: center;
-  -webkit-mask-image: repeating-linear-gradient(90deg,
-    #000 0, #000 2px, transparent 2px, transparent 5px);
-  mask-image: repeating-linear-gradient(90deg,
-    #000 0, #000 2px, transparent 2px, transparent 5px);
-  transition: background-image var(--duration-fast) var(--ease-standard);
+  background: transparent;
+  cursor: pointer;
 }
 
 #seek-bar::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 2px;
-  height: 32px;
-  border-radius: var(--radius-full);
+  height: 36px;
   background: transparent;
   cursor: pointer;
 }
 
 #seek-bar::-moz-range-thumb {
   width: 2px;
-  height: 32px;
+  height: 36px;
   border: none;
-  border-radius: var(--radius-full);
   background: transparent;
   cursor: pointer;
 }
 
-#seek-bar::-moz-range-progress {
+#seek-bar::-moz-range-track {
   background: transparent;
 }
 
@@ -384,4 +461,9 @@
 #queue-toggle:disabled {
   opacity: 0.35;
   pointer-events: none;
+}
+
+#seek-bar:disabled ~ .seek-times,
+.waveform:has(+ #seek-bar:disabled) {
+  opacity: 0.35;
 }
