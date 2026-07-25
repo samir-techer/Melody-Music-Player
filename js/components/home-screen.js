@@ -38,7 +38,12 @@ export async function renderHomeScreen() {
 
   const timeLabel = getTimeOfDayLabel();
   const emoji = getTimeOfDayEmoji();
-  const effectivePlan = getEffectivePlan();
+  let effectivePlan = 'Free';
+  try {
+    effectivePlan = getEffectivePlan();
+  } catch (err) {
+    console.error('[Melody] Home: failed to read plan status — defaulting to Free.', err);
+  }
   const badgeHtml = effectivePlan !== 'Free'
     ? ` <span class="premium-badge plan-${effectivePlan.toLowerCase()}">⭐ ${escapeHtml(effectivePlan)}</span>`
     : '';
@@ -72,7 +77,7 @@ export async function renderHomeScreen() {
           ${themeIcon(currentThemeMode)}
         </button>
       </div>
-      <button class="mp-pill" id="mp-pill" type="button" title="View Achievements">⭐ ${getMelodyPoints().toLocaleString()} MP</button>
+      <button class="mp-pill" id="mp-pill" type="button" title="View Achievements">⭐ ${safeMelodyPoints().toLocaleString()} MP</button>
     </header>
 
     <div class="home-search" role="search" id="home-search-trigger">
@@ -270,6 +275,15 @@ function themeIcon(mode) {
   if (mode === 'dark') return '☾';
   if (mode === 'system') return '◐';
   return '☀';
+}
+
+function safeMelodyPoints() {
+  try {
+    return getMelodyPoints() || 0;
+  } catch (err) {
+    console.error('[Melody] Home: failed to read Melody Points — defaulting to 0.', err);
+    return 0;
+  }
 }
 
 function escapeHtml(str) {
