@@ -397,7 +397,22 @@ export async function renderSettingsScreen() {
         <div class="settings-row"><span>Melody</span><span class="settings-value">Build Pass 5</span></div>
       </div>
     </section>
+
+    <section class="section">
+      <div class="section-heading"><h2>Diagnostics</h2></div>
+      <div class="settings-list">
+        <button class="settings-row settings-row-link" id="open-diagnostics-btn" type="button">
+          <span>Open Bug Finder</span>
+          <span class="settings-value">↗</span>
+        </button>
+      </div>
+      <p class="settings-hint">Checks your song library, theme, cache, and console for errors — useful if something looks broken.</p>
+    </section>
   `;
+
+  el.querySelector('#open-diagnostics-btn')?.addEventListener('click', () => {
+    window.open('./melody-bugfinder.html', '_blank', 'noopener');
+  });
 
   el.querySelector('#premium-promo-btn').addEventListener('click', async () => {
     const { navigate } = await import('../utils/router.js');

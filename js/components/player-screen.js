@@ -69,6 +69,13 @@ export async function renderPlayerScreen() {
     </div>
 
     <div class="seek-area">
+      <div class="waveform" id="waveform" aria-hidden="true">
+        <div class="waveform-track" id="waveform-track"></div>
+        <div class="waveform-fill" id="waveform-fill">
+          <div class="waveform-track" id="waveform-track-fill"></div>
+        </div>
+        <div class="waveform-playhead" id="waveform-playhead"></div>
+      </div>
       <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1"
              aria-label="Seek" />
       <div class="seek-times">
@@ -110,6 +117,11 @@ export async function renderPlayerScreen() {
   const titleEl = el.querySelector('#now-playing-title');
   const artistEl = el.querySelector('#now-playing-artist');
   const seekBar = el.querySelector('#seek-bar');
+  const waveform = el.querySelector('#waveform');
+  const waveformTrack = el.querySelector('#waveform-track');
+  const waveformFill = el.querySelector('#waveform-fill');
+  const waveformTrackFill = el.querySelector('#waveform-track-fill');
+  const waveformPlayhead = el.querySelector('#waveform-playhead');
   const currentTimeEl = el.querySelector('#current-time');
   const totalDurationEl = el.querySelector('#total-duration');
   const playPauseBtn = el.querySelector('#btn-play-pause');
@@ -127,13 +139,51 @@ export async function renderPlayerScreen() {
   let rafId = null;
   let lastKnownAudioTime = 0;
   let lastKnownAt = performance.now();
+  let waveformSongId = null;
+
+  // ---------- Waveform bars: a deterministic (seeded) pseudo-random bar
+  // pattern per song, so the same track always draws the same "shape"
+  // instead of reshuffling on every render or looking identical for every
+  // song. Purely decorative — real audio isn't analyzed here. ----------
+  const WAVEFORM_BAR_COUNT = 56;
+
+  function seededRandom(seed) {
+    let t = seed >>> 0;
+    return () => {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function hashSeed(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) { h = (Math.imul(31, h) + str.charCodeAt(i)) | 0; }
+    return h;
+  }
+
+  function buildWaveformBars(songId) {
+    const rand = seededRandom(hashSeed(String(songId ?? 'silence')));
+    // Gently undulating heights (not pure noise) so it reads as a waveform
+    // shape rather than random static: blend a slow sine wave with noise.
+    let bars = '';
+    for (let i = 0; i < WAVEFORM_BAR_COUNT; i++) {
+      const wave = 0.55 + 0.35 * Math.sin(i * 0.45 + rand() * 2);
+      const noise = rand() * 0.3;
+      const height = Math.max(0.16, Math.min(1, wave * 0.75 + noise));
+      bars += `<span class="wf-bar" style="height:${(height * 100).toFixed(1)}%"></span>`;
+    }
+    waveformTrack.innerHTML = bars;
+    waveformTrackFill.innerHTML = bars;
+  }
 
   // Waveform seek bar's "played" portion is painted via a CSS custom
   // property rather than the native (unstyleable) range fill.
   function updateSeekProgress() {
     const max = Number(seekBar.max) || 0;
     const pct = max > 0 ? (Number(seekBar.value) / max) * 100 : 0;
-    seekBar.style.setProperty('--progress', `${pct}%`);
+    waveform.style.setProperty('--progress', `${pct}%`);
   }
 
   // ---------- Smooth seek bar: interpolate between timeupdate ticks with
@@ -148,6 +198,8 @@ export async function renderPlayerScreen() {
     currentTimeEl.textContent = formatTime(estimated);
   }
   rafId = requestAnimationFrame(animateSeekBar);
+
+  buildWaveformBars(null);
 
   const queueToggleBtn = el.querySelector('#queue-toggle');
   const previousBtn = el.querySelector('#btn-previous');
@@ -178,6 +230,15 @@ export async function renderPlayerScreen() {
 
     playPauseBtn.classList.toggle('is-playing', state.isPlaying);
     playPauseBtn.setAttribute('aria-label', state.isPlaying ? 'Pause' : 'Play');
+    waveform.classList.toggle('is-playing', state.isPlaying);
+
+    if (song && song.id !== waveformSongId) {
+      waveformSongId = song.id;
+      buildWaveformBars(song.id);
+    } else if (!song && waveformSongId !== null) {
+      waveformSongId = null;
+      buildWaveformBars(null);
+    }
 
     // Persist rotation angle across play/pause instead of resetting to 0
     // (animation-play-state keeps the disc's current frame; only the
