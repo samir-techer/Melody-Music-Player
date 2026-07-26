@@ -279,6 +279,55 @@ export async function setUserNickname(uid, nickname) {
   }
 }
 
+/**
+ * Sets a custom-uploaded profile photo (a compressed data URL — see
+ * profile-service.js for the resize step) in Firestore only. Deliberately
+ * does NOT mirror this onto `auth.currentUser`'s photoURL the way
+ * setUserNickname mirrors displayName: Firebase Auth's photoURL field has
+ * a strict length limit that a real image data URL blows well past, so
+ * attempting that write would just fail. Firestore's `profilePhoto` field
+ * is already what getUserProfile()/every screen reads from, so this is
+ * the one source of truth that actually matters.
+ */
+export async function setUserProfilePhoto(uid, dataUrl) {
+  const ref = doc(db, USERS_COLLECTION, uid);
+  console.log(`[Melody][auth] Profile photo save — starting for users/${uid}`);
+
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (err) {
+    console.error(`[Melody][auth] Profile photo save — profile lookup failed for users/${uid}.`, err);
+    throw err;
+  }
+
+  try {
+    if (!snap.exists()) {
+      const user = auth.currentUser;
+      await setDoc(ref, {
+        uid,
+        nickname: user?.displayName || null,
+        email: user?.email || null,
+        profilePhoto: dataUrl,
+        provider: user?.providerData.some((p) => p.providerId === 'google.com') ? 'Google' : 'Email',
+        accountCreated: serverTimestamp(),
+        premiumPlan: 'Free',
+        premiumExpiry: null,
+        role: 'User',
+        totalSongs: 0,
+        totalListeningTime: 0,
+        lastLogin: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, { profilePhoto: dataUrl }, { merge: true });
+    }
+    console.log(`[Melody][auth] Profile photo save — saved for users/${uid}`);
+  } catch (err) {
+    console.error(`[Melody][auth] Profile photo save — Firestore write failed for users/${uid}.`, err);
+    throw err;
+  }
+}
+
 /* -------------------------------------------------------------------- */
 /*  Nickname changes after onboarding (Basic+ only, capped 2/month)      */
 /* -------------------------------------------------------------------- */

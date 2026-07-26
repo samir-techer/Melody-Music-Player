@@ -492,6 +492,8 @@ export function setEqualizerPreset(presetKey) {
   const allowed = hasPremiumAccess(EQ_PRESETS[requestedPreset].requiredPlan) ? requestedPreset : 'normal';
   currentEqPreset = allowed;
   setItem(EQ_PRESET_KEY, allowed).catch(() => {});
+  eqMode = 'preset';
+  setItem(EQ_MODE_KEY, eqMode).catch(() => {});
 
   ensureAudioGraph();
   const preset = EQ_PRESETS[allowed];
@@ -512,6 +514,102 @@ export function getEqualizerPreset() {
 export async function initEqualizerFromStorage() {
   const saved = await getItem(EQ_PRESET_KEY).catch(() => null);
   setEqualizerPreset(saved || 'normal');
+}
+
+/* -------------------------------------------------------------------- */
+/*  Manual Equalizer (dedicated Equalizer screen) — Basic+               */
+/*  Reuses the exact same eqBass/eqMid/eqTreble filter nodes as the      */
+/*  preset system above (never a second, competing filter chain), just  */
+/*  lets the person dial in their own dB values per band instead of      */
+/*  picking a preset. Switching a manual band back on/off toggles that   */
+/*  filter between its stored value and a flat 0dB — it never forgets    */
+/*  the slider position, it just stops applying it. Gated behind the     */
+/*  same plan requirement as EQ_PRESETS so it can't be used to bypass    */
+/*  that gate on a Free account.                                         */
+/* -------------------------------------------------------------------- */
+const MANUAL_EQ_BANDS_KEY = 'manualEqBands';
+const MANUAL_EQ_ENABLED_KEY = 'manualEqEnabled';
+const EQ_MODE_KEY = 'eqMode';
+const MANUAL_EQ_REQUIRED_PLAN = 'Basic';
+const MANUAL_EQ_RANGE = 12; // dB, matches the ±12 range shown on the Equalizer screen
+
+let manualEqBands = { bass: 0, mid: 0, treble: 0 };
+let manualEqEnabled = { bass: true, mid: true, treble: true };
+let eqMode = 'preset'; // 'preset' | 'manual' — which system currently drives the filters
+
+function applyManualEq() {
+  ensureAudioGraph();
+  if (!(eqBass && eqMid && eqTreble && audioCtx)) return;
+  const now = audioCtx.currentTime;
+  eqBass.gain.setTargetAtTime(manualEqEnabled.bass ? manualEqBands.bass : 0, now, eqSmoothingConstant);
+  eqMid.gain.setTargetAtTime(manualEqEnabled.mid ? manualEqBands.mid : 0, now, eqSmoothingConstant);
+  eqTreble.gain.setTargetAtTime(manualEqEnabled.treble ? manualEqBands.treble : 0, now, eqSmoothingConstant);
+}
+
+function persistManualEq() {
+  setItem(MANUAL_EQ_BANDS_KEY, manualEqBands).catch(() => {});
+  setItem(MANUAL_EQ_ENABLED_KEY, manualEqEnabled).catch(() => {});
+  setItem(EQ_MODE_KEY, eqMode).catch(() => {});
+}
+
+/** band: 'bass' | 'mid' | 'treble', dB clamped to ±12. Returns the allowed value (0 if gated). */
+export function setManualEqBand(band, dB) {
+  if (!(band in manualEqBands)) return 0;
+  if (!hasPremiumAccess(MANUAL_EQ_REQUIRED_PLAN)) return 0;
+  manualEqBands[band] = Math.max(-MANUAL_EQ_RANGE, Math.min(MANUAL_EQ_RANGE, dB));
+  eqMode = 'manual';
+  applyManualEq();
+  persistManualEq();
+  return manualEqBands[band];
+}
+
+export function setManualEqBandEnabled(band, enabled) {
+  if (!(band in manualEqEnabled)) return;
+  if (!hasPremiumAccess(MANUAL_EQ_REQUIRED_PLAN)) return;
+  manualEqEnabled[band] = !!enabled;
+  eqMode = 'manual';
+  applyManualEq();
+  persistManualEq();
+}
+
+/** Switches the audio path back to a named preset (see setEqualizerPreset) and records that the Equalizer screen should show "preset mode" rather than the manual sliders as the active source. */
+export function useEqPreset(presetKey) {
+  eqMode = 'preset';
+  persistManualEq();
+  return setEqualizerPreset(presetKey);
+}
+
+export function resetManualEq() {
+  manualEqBands = { bass: 0, mid: 0, treble: 0 };
+  manualEqEnabled = { bass: true, mid: true, treble: true };
+  applyManualEq();
+  persistManualEq();
+}
+
+export function getManualEqState() {
+  return {
+    bands: { ...manualEqBands },
+    enabled: { ...manualEqEnabled },
+    mode: eqMode,
+    range: MANUAL_EQ_RANGE,
+    requiredPlan: MANUAL_EQ_REQUIRED_PLAN,
+    unlocked: hasPremiumAccess(MANUAL_EQ_REQUIRED_PLAN),
+  };
+}
+
+/** Loads any saved manual EQ state and, if it was the active mode, re-applies it — call once at boot alongside initEqualizerFromStorage(). */
+export async function initManualEqFromStorage() {
+  const [bands, enabled, mode] = await Promise.all([
+    getItem(MANUAL_EQ_BANDS_KEY).catch(() => null),
+    getItem(MANUAL_EQ_ENABLED_KEY).catch(() => null),
+    getItem(EQ_MODE_KEY).catch(() => null),
+  ]);
+  if (bands) manualEqBands = { ...manualEqBands, ...bands };
+  if (enabled) manualEqEnabled = { ...manualEqEnabled, ...enabled };
+  if (mode === 'manual' && hasPremiumAccess(MANUAL_EQ_REQUIRED_PLAN)) {
+    eqMode = 'manual';
+    applyManualEq();
+  }
 }
 
 /* -------------------------------------------------------------------- */
