@@ -21,7 +21,7 @@ import { getArtworkUrl } from '../services/artwork-service.js';
 import { getRecentlyPlayedEntries } from '../services/history-service.js';
 import { navigate } from '../utils/router.js';
 import { attachShell } from './shell.js';
-import { getCurrentUser } from '../services/auth-service.js';
+import { getCurrentUser, getUserProfile } from '../services/auth-service.js';
 import { getEffectivePlan } from '../services/premium-service.js';
 import { getMelodyPoints } from '../services/achievements-service.js';
 import { showToast } from '../utils/toast.js';
@@ -37,11 +37,16 @@ const LIBRARY_LINKS = [
 
 export async function renderHomeScreen() {
   let nickname = 'friend';
+  let profilePhoto = null;
   try {
     const currentUser = getCurrentUser();
-    nickname = (currentUser && (await getUserItem(currentUser.uid, 'nickname'))) || 'friend';
+    if (currentUser) {
+      nickname = (await getUserItem(currentUser.uid, 'nickname')) || 'friend';
+      const profile = await getUserProfile(currentUser.uid).catch(() => null);
+      profilePhoto = profile?.profilePhoto || null;
+    }
   } catch (err) {
-    console.error('[Melody] Home: failed to load nickname — using default.', err);
+    console.error('[Melody] Home: failed to load nickname/photo — using defaults.', err);
   }
 
   const timeLabel = getTimeOfDayLabel();
@@ -106,7 +111,7 @@ export async function renderHomeScreen() {
           <button class="icon-btn" id="notif-bell" aria-label="Notifications" title="Notifications">
             🔔<span class="notif-dot" id="notif-dot" hidden></span>
           </button>
-          <button class="icon-btn" id="profile-btn" aria-label="Profile" title="Profile">👤</button>
+          <button class="icon-btn profile-icon-btn" id="profile-btn" aria-label="Profile" title="Profile">${profilePhoto ? `<img src="${profilePhoto}" alt="" />` : '👤'}</button>
           <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle appearance">
             ${themeIcon(currentThemeMode)}
           </button>
@@ -215,7 +220,7 @@ export async function renderHomeScreen() {
   el.querySelector('#notif-bell').addEventListener('click', () => {
     showToast('Notifications are coming in a future update.');
   });
-  el.querySelector('#profile-btn').addEventListener('click', () => navigate('settings'));
+  el.querySelector('#profile-btn').addEventListener('click', () => navigate('profile'));
 
   // ---------- MP Store / Premium shortcuts ----------
   el.querySelector('#mp-store-shortcut').addEventListener('click', () => navigate('rewards-store'));

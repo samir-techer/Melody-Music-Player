@@ -103,7 +103,7 @@ export async function renderPlayerScreen() {
     <div class="extra-controls">
       <button class="extra-chip" id="speed-toggle" aria-label="Playback speed">1×</button>
       <button class="extra-chip" id="sleep-timer-toggle" aria-label="Sleep timer">🌙 Sleep</button>
-      <button class="extra-chip" id="audio-processing-link" aria-label="Audio processing settings">🎚 Audio</button>
+      <button class="extra-chip" id="audio-processing-link" aria-label="Equalizer">🎚 EQ</button>
     </div>
 
     <div class="sleep-timer-sheet" id="sleep-timer-sheet" hidden>
@@ -475,11 +475,11 @@ export async function renderPlayerScreen() {
     });
   });
 
-  // ---------- Audio processing shortcut (Equalizer / Crossfade / Gapless /
-  // Acoustic Mode / Clean Bass all already live in Settings — this is a
-  // direct entry point into that existing panel rather than a duplicate
-  // implementation, so behavior can't drift out of sync between screens. ----------
-  el.querySelector('#audio-processing-link').addEventListener('click', () => navigate('settings'));
+  // ---------- Equalizer shortcut ----------
+  // Crossfade/Gapless/Acoustic Mode/Clean Bass still live in Settings (no
+  // reason to duplicate those toggles here), but the Equalizer itself now
+  // has its own dedicated, faster-to-reach screen.
+  el.querySelector('#audio-processing-link').addEventListener('click', () => navigate('equalizer'));
 
   seekBar.addEventListener('input', () => {
     updateSeekProgress();
