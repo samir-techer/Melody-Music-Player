@@ -22,7 +22,7 @@ import { getUserItem, setUserItem } from './utils/storage.js';
 import { initRouter, registerRoute, navigate, setAuthGuard } from './utils/router.js';
 import { initTheme, applyPremiumThemeIfAny } from './services/theme-service.js';
 import {
-  restoreState, setCrossfadeConfig, initEqualizerFromStorage,
+  restoreState, setCrossfadeConfig, initEqualizerFromStorage, initManualEqFromStorage,
   setAudioProcessingMode, setCleanBass, initAudioProcessingFromStorage, initCleanBassFromStorage,
   initAcousticModeFromStorage, setAcousticMode,
 } from './services/player-service.js';
@@ -45,6 +45,8 @@ import { renderPurchaseHistoryScreen } from './components/purchase-history-scree
 import { renderMusicHubScreen } from './components/music-hub.js';
 import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
+import { renderEqualizerScreen } from './components/equalizer-screen.js';
+import { renderProfileScreen } from './components/profile-screen.js';
 import { renderAdminScreen } from './components/admin-screen.js';
 import { renderStatsScreen } from './components/stats-screen.js';
 import { renderAchievementsScreen } from './components/achievements-screen.js';
@@ -94,6 +96,8 @@ async function boot() {
   registerRoute('music-hub', renderMusicHubScreen, { requiresAuth: true });
   registerRoute('metadata-editor', renderMetadataEditorScreen, { requiresAuth: true });
   registerRoute('lyrics', renderLyricsScreen, { requiresAuth: true });
+  registerRoute('equalizer', renderEqualizerScreen, { requiresAuth: true });
+  registerRoute('profile', renderProfileScreen, { requiresAuth: true });
   registerRoute('admin', renderAdminScreen, {
     requiresAuth: true,
     // Re-verified against the live Firestore-backed premium-service state
@@ -143,9 +147,11 @@ async function boot() {
   restoreState().catch((err) => {
     console.error('[Melody] Playback state restore failed — starting with an empty player.', err);
   });
-  initEqualizerFromStorage().catch((err) => {
-    console.error('[Melody] Equalizer preset restore failed — using Normal.', err);
-  });
+  initEqualizerFromStorage()
+    .then(() => initManualEqFromStorage())
+    .catch((err) => {
+      console.error('[Melody] Equalizer restore failed — using Normal.', err);
+    });
   initAudioProcessingFromStorage().catch((err) => {
     console.error('[Melody] Audio Processing mode restore failed — using Standard.', err);
   });
