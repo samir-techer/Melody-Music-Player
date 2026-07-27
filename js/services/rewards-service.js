@@ -1,15 +1,15 @@
 /**
  * rewards-service.js
  * 🎁 Melody Points Rewards Store — spend MP (earned via
- * achievements-service.js) on Premium Themes or auto-generated discount
- * coupons for a future Premium purchase.
+ * achievements-service.js) on auto-generated discount coupons for a
+ * future Premium purchase.
+ *
+ * Premium Themes / Gradient Collection have been removed (Melody now only
+ * ships Light / Dark / System) — mpUnlockedThemes is kept in storage only
+ * so accounts that unlocked one previously don't lose that history record,
+ * but nothing reads it to grant a theme anymore.
  *
  * Storage: users/{uid}, same document as everything else:
- *   mpUnlockedThemes  string[]   — theme keys unlocked via MP, independent
- *                                  of premiumPlan. settings-screen.js
- *                                  treats a theme as usable if EITHER
- *                                  hasPremiumAccess(requiredPlan) OR its
- *                                  key is in this array.
  *   discountCoupons   array of { code, discountPercent, mpCost, createdAt,
  *                                expiresAt, redeemed } — expires 30 days
  *                                after creation. Melody's Premium screen
@@ -30,22 +30,10 @@
 import { doc, onSnapshot, setDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import { spendMelodyPoints } from './achievements-service.js';
-import {
-  PREMIUM_THEMES, GRADIENT_COLLECTION_KEYS, setMpUnlockedThemeKeys, refreshPremiumThemeForUid,
-} from './theme-service.js';
+import { setMpUnlockedThemeKeys } from './theme-service.js';
 
 const HISTORY_LIMIT = 50;
 const COUPON_VALID_DAYS = 30;
-
-export const THEME_PRICES = {
-  basic: 500, plus: 700, elite: 1200,
-  // Gradient Collection — Midnight Nebula has no entry here on purpose:
-  // it ships free with Elite and the person explicitly wants it to stay
-  // exclusive, not purchasable with MP.
-  'pink-blossom': 500,
-  'neon-orchid': 750,
-  'aurora-mint': 750,
-};
 
 export const DISCOUNT_TIERS = [
   { percent: 10, mp: 300 },
@@ -112,12 +100,10 @@ export function initRewards(uid) {
       state.mpUnlockedThemes = Array.isArray(data.mpUnlockedThemes) ? data.mpUnlockedThemes : [];
       state.discountCoupons = Array.isArray(data.discountCoupons) ? data.discountCoupons : [];
       state.rewardHistory = Array.isArray(data.rewardHistory) ? data.rewardHistory : [];
-      // theme-service.js can't import this module (it's the other way
-      // around, for PREMIUM_THEMES) — mirror the unlock list into its
-      // cache directly, then let it re-evaluate the currently-applied
-      // theme in case an MP purchase just unlocked it.
+      // Kept in sync even though nothing grants a theme from this list
+      // anymore, purely so theme-service.js's stub doesn't need to know
+      // whether an account unlocked one under the old system.
       setMpUnlockedThemeKeys(state.mpUnlockedThemes);
-      refreshPremiumThemeForUid(uid).catch(() => {});
       notify();
     },
     (err) => console.error('[Melody] Rewards: live listener failed.', err),
@@ -137,45 +123,11 @@ function activeCoupons() {
 
 export function getRewardsSnapshot() {
   return {
-    themes: Object.values(PREMIUM_THEMES).filter((t) => !t.collection).map((t) => ({
-      key: t.key,
-      label: t.label,
-      price: THEME_PRICES[t.key] || 999,
-      unlocked: state.mpUnlockedThemes.includes(t.key),
-    })),
-    gradientThemes: GRADIENT_COLLECTION_KEYS.map((key) => {
-      const t = PREMIUM_THEMES[key];
-      return {
-        key: t.key,
-        label: t.label,
-        gradient: t.gradient,
-        price: THEME_PRICES[key] || null, // null = not for sale (Midnight Nebula)
-        eliteExclusive: !t.mpOnly,
-        owned: t.mpOnly ? state.mpUnlockedThemes.includes(key) : null, // null = "owned" isn't the right concept, plan-gated instead
-      };
-    }),
     discountTiers: DISCOUNT_TIERS,
     activeCoupons: activeCoupons(),
     expiredOrUsedCoupons: state.discountCoupons.filter((c) => c.redeemed || c.expiresAt <= Date.now()),
     history: [...state.rewardHistory].reverse(),
   };
-}
-
-/** Spend MP to permanently unlock a Premium Theme for this account (independent of plan). */
-export function redeemTheme(themeKey) {
-  const theme = PREMIUM_THEMES[themeKey];
-  const price = THEME_PRICES[themeKey];
-  if (!theme || !price) return { success: false, reason: 'unknown-theme' };
-  if (state.mpUnlockedThemes.includes(themeKey)) return { success: false, reason: 'already-unlocked' };
-
-  if (!spendMelodyPoints(price)) return { success: false, reason: 'insufficient-mp' };
-
-  state.mpUnlockedThemes.push(themeKey);
-  state.rewardHistory.push({ type: 'theme', label: theme.label, mp: price, redeemedAt: Date.now() });
-  setMpUnlockedThemeKeys(state.mpUnlockedThemes);
-  notify();
-  persist();
-  return { success: true };
 }
 
 /** Spend MP to generate a discount coupon (expires in 30 days). */
