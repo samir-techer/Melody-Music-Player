@@ -5,16 +5,13 @@
  * Premium discount coupons.
  */
 
-import { getAchievementsSnapshot, subscribeAchievements, recordThemeApplied } from '../services/achievements-service.js';
+import { getAchievementsSnapshot, subscribeAchievements } from '../services/achievements-service.js';
 import {
-  getRewardsSnapshot, subscribeRewards, redeemTheme, redeemDiscountCoupon,
+  getRewardsSnapshot, subscribeRewards, redeemDiscountCoupon,
 } from '../services/rewards-service.js';
-import { getSelectedPremiumTheme, setSelectedPremiumTheme } from '../services/theme-service.js';
 import { getCurrentUser } from '../services/auth-service.js';
-import { showRewardPopup } from '../utils/reward-popup.js';
 import { showConfirmDialog } from '../utils/confirm-dialog.js';
 import { showToast } from '../utils/toast.js';
-import { playThemeSwitchFade } from '../utils/theme-fade.js';
 import { spawnRipple } from '../utils/ripple.js';
 import { attachShell } from './shell.js';
 import { navigate } from '../utils/router.js';
@@ -28,62 +25,6 @@ function escapeHtml(str) {
 function formatExpiry(ts) {
   const days = Math.max(0, Math.ceil((ts - Date.now()) / (24 * 60 * 60 * 1000)));
   return days === 0 ? 'Expires today' : `Expires in ${days} day${days === 1 ? '' : 's'}`;
-}
-
-function gradientCss(g) {
-  if (!g) return 'transparent';
-  return `linear-gradient(135deg, ${g.start}, ${g.mid || g.end}, ${g.end})`;
-}
-
-function renderThemeCard(t) {
-  return `
-    <div class="reward-card">
-      <div class="reward-card-top">
-        <span class="reward-card-title">${escapeHtml(t.label)}</span>
-        <span class="reward-card-price">${t.price.toLocaleString()} MP</span>
-      </div>
-      <button class="btn-secondary reward-card-btn" type="button" data-redeem-theme="${t.key}" ${t.unlocked ? 'disabled' : ''}>
-        ${t.unlocked ? '✓ Unlocked' : 'Unlock'}
-      </button>
-    </div>
-  `;
-}
-
-/** Gradient Collection card — live preview swatch, price/Elite badge, Owned/Apply/Applied states. */
-function renderGradientCard(g, appliedThemeKey) {
-  const isApplied = appliedThemeKey === g.key;
-  const isOwned = g.eliteExclusive ? null : g.owned; // eliteExclusive themes don't use the "owned via MP" concept
-
-  let badge = '';
-  if (g.eliteExclusive) badge = '<span class="gradient-card-badge">Elite Exclusive</span>';
-  else if (isOwned) badge = '<span class="gradient-card-badge">Owned</span>';
-
-  let actionHtml;
-  if (isApplied) {
-    actionHtml = `<button class="btn-secondary reward-card-btn" type="button" disabled>✓ Applied</button>`;
-  } else if (g.eliteExclusive) {
-    // Access is plan-based, not MP — settings-screen.js's swatch grid is
-    // the authority on whether the account actually has Elite; tapping
-    // Apply here just attempts it, and setSelectedPremiumTheme() itself
-    // safely no-ops back to Default if the account doesn't qualify.
-    actionHtml = `<button class="btn-secondary reward-card-btn" type="button" data-apply-gradient="${g.key}">Apply</button>`;
-  } else if (isOwned) {
-    actionHtml = `<button class="btn-secondary reward-card-btn" type="button" data-apply-gradient="${g.key}">Apply</button>`;
-  } else {
-    actionHtml = `<button class="btn-secondary reward-card-btn" type="button" data-redeem-gradient="${g.key}">Unlock — ${g.price.toLocaleString()} MP</button>`;
-  }
-
-  return `
-    <div class="gradient-card ${isApplied ? 'is-applied' : ''}">
-      <div class="gradient-card-swatch" style="background:${gradientCss(g.gradient)}"></div>
-      <div class="gradient-card-title">
-        <span class="gradient-card-name">${escapeHtml(g.label)}</span>
-        ${badge}
-      </div>
-      <span class="gradient-card-price">${g.eliteExclusive ? 'Included with Elite' : `${g.price.toLocaleString()} MP`}</span>
-      ${actionHtml}
-    </div>
-  `;
 }
 
 function renderDiscountCard(d) {
@@ -107,7 +48,7 @@ function renderCoupon(c) {
   `;
 }
 
-function renderContent(mp, rewards, appliedThemeKey) {
+function renderContent(mp, rewards) {
   return `
     <header class="screen-header">
       <button class="back-link" id="rewards-back">‹ Back</button>
@@ -120,18 +61,6 @@ function renderContent(mp, rewards, appliedThemeKey) {
         <span class="achv-hero-mp-label">⭐ Melody Points</span>
       </div>
     </div>
-
-    <section class="section">
-      <div class="section-heading"><h2>🌈 Gradient Collection</h2></div>
-      <div class="reward-grid">${rewards.gradientThemes.map((g) => renderGradientCard(g, appliedThemeKey)).join('')}</div>
-      <p class="hint" style="margin-top:8px;">Midnight Nebula ships free with Elite and isn't sold separately.</p>
-    </section>
-
-    <section class="section">
-      <div class="section-heading"><h2>🎨 Themes</h2></div>
-      <div class="reward-grid">${rewards.themes.map(renderThemeCard).join('')}</div>
-      <p class="hint" style="margin-top:8px;">Unlocking a theme here works even without a matching Premium plan.</p>
-    </section>
 
     <section class="section">
       <div class="section-heading"><h2>🏷️ Premium Discounts</h2></div>
@@ -171,78 +100,11 @@ export async function renderRewardsScreen() {
   const authUser = getCurrentUser();
   let latestMp = getAchievementsSnapshot().melodyPoints;
   let latestRewards = getRewardsSnapshot();
-  let appliedThemeKey = authUser ? await getSelectedPremiumTheme(authUser.uid) : null;
   let lastPaint = 0;
   let pendingRepaint = false;
 
   function bindContentEvents() {
     content.querySelector('#rewards-back').addEventListener('click', () => navigate('achievements'));
-
-    content.querySelectorAll('[data-redeem-theme]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        spawnRipple(btn, e);
-        const key = btn.dataset.redeemTheme;
-        const theme = latestRewards.themes.find((t) => t.key === key);
-        if (!theme) return;
-        const ok = await showConfirmDialog({
-          title: `Unlock ${theme.label}?`,
-          message: `This will spend ${theme.price.toLocaleString()} MP.`,
-          confirmLabel: 'Unlock',
-        });
-        if (!ok) return;
-        const result = redeemTheme(key);
-        if (result.success) {
-          showRewardPopup({ icon: '🎨', label: theme.label, mp: -theme.price });
-          showToast(`${theme.label} unlocked! Apply it from Settings → Premium Themes.`);
-        } else if (result.reason === 'insufficient-mp') {
-          showToast('Not enough Melody Points for this yet — keep earning!');
-        }
-      });
-    });
-
-    content.querySelectorAll('[data-redeem-gradient]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        spawnRipple(btn, e);
-        const key = btn.dataset.redeemGradient;
-        const gradient = latestRewards.gradientThemes.find((g) => g.key === key);
-        if (!gradient) return;
-        const ok = await showConfirmDialog({
-          title: `Unlock ${gradient.label}?`,
-          message: `This will spend ${gradient.price.toLocaleString()} MP.`,
-          confirmLabel: 'Unlock',
-        });
-        if (!ok) return;
-        const result = redeemTheme(key);
-        if (result.success) {
-          showRewardPopup({ icon: '🌈', label: gradient.label, mp: -gradient.price });
-          showToast(`${gradient.label} unlocked!`);
-        } else if (result.reason === 'insufficient-mp') {
-          showToast('Not enough Melody Points for this yet — keep earning!');
-        }
-      });
-    });
-
-    content.querySelectorAll('[data-apply-gradient]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        spawnRipple(btn, e);
-        if (!authUser) {
-          showToast('You need to be signed in to change themes — try reloading.');
-          return;
-        }
-        const key = btn.dataset.applyGradient;
-        try {
-          playThemeSwitchFade(async () => {
-            await setSelectedPremiumTheme(authUser.uid, key);
-          });
-          appliedThemeKey = key;
-          recordThemeApplied();
-          paint(true);
-        } catch (err) {
-          console.error('[Melody] Gradient theme apply failed.', err);
-          showToast(`Couldn't apply theme: ${err?.message || 'unknown error'}`);
-        }
-      });
-    });
 
     content.querySelectorAll('[data-redeem-discount]').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
@@ -259,6 +121,15 @@ export async function renderRewardsScreen() {
         const result = redeemDiscountCoupon(percent);
         if (result.success) {
           showToast(`Coupon generated: ${result.coupon.code} (${percent}% off, expires in 30 days).`);
+          if (authUser) {
+            import('../services/notification-service.js').then(({ addNotification }) => {
+              addNotification(authUser.uid, {
+                category: 'mp-store',
+                title: `${percent}% off coupon generated`,
+                body: `Code: ${result.coupon.code} — expires in 30 days.`,
+              });
+            }).catch((err) => console.error('[Melody] Failed to record coupon notification.', err));
+          }
         } else if (result.reason === 'insufficient-mp') {
           showToast('Not enough Melody Points for this yet — keep earning!');
         }
@@ -274,7 +145,7 @@ export async function renderRewardsScreen() {
     }
     lastPaint = now;
     pendingRepaint = false;
-    content.innerHTML = renderContent(latestMp, latestRewards, appliedThemeKey);
+    content.innerHTML = renderContent(latestMp, latestRewards);
     bindContentEvents();
   }
 

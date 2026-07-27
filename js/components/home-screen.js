@@ -24,7 +24,6 @@ import { attachShell } from './shell.js';
 import { getCurrentUser, getUserProfile } from '../services/auth-service.js';
 import { getEffectivePlan } from '../services/premium-service.js';
 import { getMelodyPoints } from '../services/achievements-service.js';
-import { showToast } from '../utils/toast.js';
 
 const LIBRARY_LINKS = [
   { key: 'albums', label: 'Albums', icon: '◈' },
@@ -214,13 +213,22 @@ export async function renderHomeScreen() {
   el.querySelector('#mp-pill').addEventListener('click', () => navigate('achievements'));
 
   // ---------- Notifications / Profile ----------
-  // Notification center isn't built yet — this is a real, honest
-  // placeholder (not a dead button) rather than pretending the feature
-  // exists. Swap for `navigate('notifications')` once that screen lands.
-  el.querySelector('#notif-bell').addEventListener('click', () => {
-    showToast('Notifications are coming in a future update.');
-  });
+  el.querySelector('#notif-bell').addEventListener('click', () => navigate('notifications'));
   el.querySelector('#profile-btn').addEventListener('click', () => navigate('profile'));
+
+  // Live unread badge — updates without needing to reopen Home.
+  const notifDot = el.querySelector('#notif-dot');
+  let unsubscribeNotifications = null;
+  {
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      import('../services/notification-service.js').then(({ subscribeNotifications }) => {
+        unsubscribeNotifications = subscribeNotifications(currentUser.uid, ({ unreadCount }) => {
+          notifDot.hidden = unreadCount === 0;
+        });
+      });
+    }
+  }
 
   // ---------- MP Store / Premium shortcuts ----------
   el.querySelector('#mp-store-shortcut').addEventListener('click', () => navigate('rewards-store'));
@@ -256,6 +264,21 @@ export async function renderHomeScreen() {
 
     statusEl.textContent = summaryMessage(summary);
     fileInput.value = '';
+
+    if (summary.imported > 0) {
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        import('../services/notification-service.js').then(({ addNotification }) => {
+          addNotification(currentUser.uid, {
+            category: 'system',
+            title: `Imported ${summary.imported} song${summary.imported === 1 ? '' : 's'}`,
+            body: summary.skipped || summary.failed
+              ? `${summary.skipped || 0} skipped, ${summary.failed || 0} failed.`
+              : 'All set — they\u2019re in your library now.',
+          }).catch((err) => console.error('[Melody] Failed to record import notification.', err));
+        });
+      }
+    }
 
     // Re-render the whole screen so the new songs show up in the sections.
     setTimeout(async () => {
@@ -331,7 +354,10 @@ export async function renderHomeScreen() {
 
   // Unsubscribe when this screen is navigated away from, so state updates
   // don't keep firing against a detached DOM tree.
-  el._onLeave = unsubscribe;
+  el._onLeave = () => {
+    unsubscribe();
+    unsubscribeNotifications?.();
+  };
 
   return el;
 }

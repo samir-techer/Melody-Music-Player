@@ -6,7 +6,7 @@
  * info, matching what the README described as "coming next."
  *
  * Premium (Basic+) sections added here:
- *  - Premium Themes (locked preview for Free, selectable for Basic+)
+ *  - Appearance: Light / Dark / System only
  *  - Crossfade toggle + duration slider
  *  - Cloud Backup toggle (Favorites/Playlists/Queue/Settings -> Firestore)
  *  - Equalizer presets
@@ -15,10 +15,7 @@
  * with a lock icon for accounts that don't qualify, upgrade dialog on tap.
  */
 
-import {
-  getThemeMode, setThemeMode, PREMIUM_THEMES, GRADIENT_COLLECTION_KEYS,
-  getSelectedPremiumTheme, setSelectedPremiumTheme, isPremiumThemeUnlocked,
-} from '../services/theme-service.js';
+import { getThemeMode, setThemeMode } from '../services/theme-service.js';
 import { getSongCount, getAllSongs, removeSong } from '../services/library-service.js';
 import { getFavoriteIds } from '../services/favorites-service.js';
 import {
@@ -42,8 +39,7 @@ import {
 import { showInfoDialog } from '../utils/confirm-dialog.js';
 import { setCloudBackupActive } from '../services/cloud-backup-service.js';
 import { showUpgradeDialog } from '../utils/upgrade-dialog.js';
-import { recordThemeApplied, getMelodyPoints } from '../services/achievements-service.js';
-import { playThemeSwitchFade } from '../utils/theme-fade.js';
+import { getMelodyPoints } from '../services/achievements-service.js';
 import { doc, setDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { db } from '../services/firebase-config.js';
 
@@ -86,7 +82,6 @@ export async function renderSettingsScreen() {
   // end up as "Admin", "ADMIN ", etc. (e.g. a manual console edit) just
   // as easily as a clean "admin".
   const isAdminUser = (profile?.role || '').trim().toLowerCase() === 'admin';
-  const selectedPremiumTheme = authUser ? await getSelectedPremiumTheme(authUser.uid) : null;
   const crossfade = getCrossfadeConfig();
   const eqPreset = getEqualizerPreset();
   const nicknameStatus = authUser ? await getNicknameChangeStatus(authUser.uid) : { used: 0, remaining: 0, limit: 2 };
@@ -189,38 +184,6 @@ export async function renderSettingsScreen() {
         ${THEME_OPTIONS.map((opt) => `
           <button class="segment ${opt.key === currentMode ? 'active' : ''}" data-theme="${opt.key}">${opt.label}</button>
         `).join('')}
-      </div>
-
-      <div class="section-heading" style="margin-top: var(--space-4);"><h3>Premium Themes</h3></div>
-      <div class="theme-swatch-grid" id="premium-theme-grid">
-        <button type="button" class="theme-swatch theme-swatch-default ${!selectedPremiumTheme ? 'active' : ''}" data-theme-key="">
-          <div class="theme-swatch-preview"></div>
-          <span>Default</span>
-        </button>
-        ${Object.values(PREMIUM_THEMES).filter((t) => !t.collection).map((theme) => {
-          const unlocked = isPremiumThemeUnlocked(theme.key);
-          return `
-          <button type="button" class="theme-swatch theme-swatch-${theme.key} ${selectedPremiumTheme === theme.key && unlocked ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-theme-key="${theme.key}" data-required-plan="${theme.requiredPlan}">
-            <div class="theme-swatch-preview">${unlocked ? '' : '<span class="lock-icon">🔒</span>'}</div>
-            <span>${escapeHtml(theme.label)}</span>
-          </button>`;
-        }).join('')}
-      </div>
-
-      <div class="section-heading" style="margin-top: var(--space-4);">
-        <h3>🌈 Gradient Collection</h3>
-        <button class="see-all" id="open-gradient-collection" type="button" style="background:none;border:none;cursor:pointer;">See all in Store &rsaquo;</button>
-      </div>
-      <div class="theme-swatch-grid" id="gradient-theme-grid">
-        ${GRADIENT_COLLECTION_KEYS.map((key) => {
-          const theme = PREMIUM_THEMES[key];
-          const unlocked = isPremiumThemeUnlocked(key);
-          return `
-          <button type="button" class="theme-swatch theme-swatch-${key} ${selectedPremiumTheme === key && unlocked ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-theme-key="${key}" data-required-plan="${theme.requiredPlan || ''}" data-mp-only="${theme.mpOnly ? '1' : ''}" data-collection="gradient">
-            <div class="theme-swatch-preview">${unlocked ? '' : '<span class="lock-icon">🔒</span>'}</div>
-            <span>${escapeHtml(theme.label)}</span>
-          </button>`;
-        }).join('')}
       </div>
     </section>
 
@@ -564,56 +527,6 @@ export async function renderSettingsScreen() {
   /* ---------------------------------------------------------------- */
   /*  Premium: Themes                                                   */
   /* ---------------------------------------------------------------- */
-  /* ---------------------------------------------------------------- */
-  /*  Premium: Themes (Premium Themes + Gradient Collection)           */
-  /* ---------------------------------------------------------------- */
-  async function handleThemeSwatchClick(e) {
-    const swatch = e.target.closest('.theme-swatch');
-    if (!swatch) return;
-    if (!authUser) {
-      const { showToast } = await import('../utils/toast.js');
-      showToast('You need to be signed in to change themes — try reloading.');
-      return;
-    }
-    const themeKey = swatch.dataset.themeKey || null;
-    const requiredPlan = swatch.dataset.requiredPlan;
-    const mpOnly = swatch.dataset.mpOnly === '1';
-
-    if (themeKey && !isPremiumThemeUnlocked(themeKey)) {
-      if (mpOnly) {
-        const { showToast } = await import('../utils/toast.js');
-        showToast('Unlock this gradient theme with Melody Points in the Rewards Store.');
-        const { navigate } = await import('../utils/router.js');
-        navigate('rewards-store');
-      } else {
-        const isGradientEliteExclusive = swatch.dataset.collection === 'gradient';
-        const message = isGradientEliteExclusive
-          ? `${swatch.querySelector('span')?.textContent || 'This theme'} ships free with Elite and isn't sold separately — upgrade to Elite to unlock it.`
-          : `Upgrade to ${requiredPlan} (or unlock it with Melody Points in the Rewards Store) to use this theme.`;
-        showUpgradeDialog(message, requiredPlan);
-      }
-      return;
-    }
-
-    try {
-      playThemeSwitchFade(async () => {
-        await setSelectedPremiumTheme(authUser.uid, themeKey);
-      });
-      el.querySelectorAll('.theme-swatch').forEach((s) => s.classList.toggle('active', s === swatch));
-      if (themeKey) recordThemeApplied();
-    } catch (err) {
-      console.error('[Melody] Theme selection failed.', err);
-      const { showToast } = await import('../utils/toast.js');
-      showToast(`Couldn't save theme: ${err?.message || 'unknown error'}`);
-    }
-  }
-  el.querySelector('#premium-theme-grid').addEventListener('click', handleThemeSwatchClick);
-  el.querySelector('#gradient-theme-grid').addEventListener('click', handleThemeSwatchClick);
-  el.querySelector('#open-gradient-collection')?.addEventListener('click', async () => {
-    const { navigate } = await import('../utils/router.js');
-    navigate('rewards-store');
-  });
-
   /* ---------------------------------------------------------------- */
   /*  Premium: Crossfade                                                */
   /* ---------------------------------------------------------------- */
