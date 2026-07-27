@@ -161,6 +161,18 @@
   text-align: left;
 }
 
+.now-playing-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.now-playing-actions .icon-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
+}
+
 .now-playing-info h1 {
   font-size: var(--text-lg);
   line-height: var(--leading-tight);

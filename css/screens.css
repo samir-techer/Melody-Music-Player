@@ -81,11 +81,58 @@
   font-size: var(--text-sm);
   font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 .song-row .info .meta {
   font-size: var(--text-xs);
   color: var(--color-text-secondary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- Now-playing row highlight ---------- */
+.song-row.now-playing {
+  background: var(--color-accent-softer);
+}
+.song-row.now-playing .info .title {
+  color: var(--color-accent);
+}
+.song-row.now-playing .art {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* The play button swaps to an animated 3-bar "now playing" glyph instead
+   of the ▶ icon for whichever row is currently playing. */
+.row-play-btn { position: relative; }
+.row-playing-bars {
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 16px;
+  height: 14px;
+}
+.now-playing .row-play-icon { display: none; }
+.now-playing .row-playing-bars { display: flex; }
+.row-playing-bars span {
+  width: 3px;
+  background: var(--color-accent);
+  border-radius: 1px;
+  animation: row-bar-bounce 800ms ease-in-out infinite;
+}
+.row-playing-bars span:nth-child(1) { height: 40%; animation-delay: 0ms; }
+.row-playing-bars span:nth-child(2) { height: 100%; animation-delay: 160ms; }
+.row-playing-bars span:nth-child(3) { height: 65%; animation-delay: 320ms; }
+
+/* Paused-on-this-row: keep the highlight, but freeze the bars at rest
+   instead of implying audio is actively moving. */
+.now-playing-paused .row-playing-bars span { animation-play-state: paused; height: 30% !important; }
+
+@keyframes row-bar-bounce {
+  0%, 100% { height: 25%; }
+  50% { height: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-playing-bars span { animation: none; height: 60%; }
 }
 
 /* ---------- Favorite heart (shared: song rows + player screen) ---------- */
