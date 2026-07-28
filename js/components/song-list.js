@@ -12,6 +12,7 @@
 
 import { getArtworkUrl } from '../services/artwork-service.js';
 import { subscribeFavorites, toggleFavorite } from '../services/favorites-service.js';
+import { subscribe as subscribePlayer } from '../services/player-service.js';
 
 export function renderSongListHtml(songs, options = {}) {
   const { selectMode = false, selectedIds = new Set(), showPlayCount = false } = options;
@@ -24,13 +25,16 @@ export function renderSongListHtml(songs, options = {}) {
       ${songs.map((song) => `
         <div class="song-row ${selectMode ? 'select-mode' : ''} ${selectedIds.has(song.id) ? 'selected' : ''}" data-id="${song.id}">
           ${selectMode ? `<button class="select-checkbox" data-id="${song.id}" aria-label="Select song">${selectedIds.has(song.id) ? '✓' : ''}</button>` : ''}
-          <div class="art">${placeholderArtSvg()}</div>
+          <div class="art">${placeholderArtSvg(song)}</div>
           <div class="info">
             <div class="title">${escapeHtml(song.title)}</div>
             <div class="meta">${escapeHtml(song.artist)}${song.album && song.album !== 'Unknown Album' ? ' · ' + escapeHtml(song.album) : ''}${showPlayCount ? ` · ${song.playCount || 0} plays` : ''}</div>
           </div>
           ${!selectMode ? `
-            <button class="row-play-btn" data-id="${song.id}" aria-label="Play now">▶</button>
+            <button class="row-play-btn" data-id="${song.id}" aria-label="Play now">
+              <span class="row-play-icon">▶</span>
+              <span class="row-playing-bars" aria-hidden="true"><span></span><span></span><span></span></span>
+            </button>
             <button class="favorite-btn" data-id="${song.id}" aria-label="Toggle favorite">♥</button>
           ` : ''}
         </div>
@@ -87,9 +91,22 @@ export function wireSongList(containerEl, songs, { onOpen, onPlay, selectMode = 
     });
   });
 
-  const unsubscribe = subscribeFavorites((favSet) => {
+  const unsubscribeFavs = subscribeFavorites((favSet) => {
     containerEl.querySelectorAll('.favorite-btn').forEach((btn) => {
       btn.classList.toggle('is-favorite', favSet.has(btn.dataset.id));
+    });
+  });
+
+  // ---------- Now-playing highlight ----------
+  // Marks whichever row matches the currently playing song — works
+  // wherever this shared row renderer is used (Library, Music Hub,
+  // Search, drilldowns) without each caller having to wire it separately.
+  const unsubscribePlayer = subscribePlayer((state) => {
+    const playingId = state.currentSong?.id || null;
+    containerEl.querySelectorAll('.song-row').forEach((row) => {
+      const isThisRow = row.dataset.id === playingId;
+      row.classList.toggle('now-playing', isThisRow);
+      row.classList.toggle('now-playing-paused', isThisRow && !state.isPlaying);
     });
   });
 
@@ -103,17 +120,34 @@ export function wireSongList(containerEl, songs, { onOpen, onPlay, selectMode = 
     });
   });
 
-  return unsubscribe;
+  return () => {
+    unsubscribeFavs();
+    unsubscribePlayer();
+  };
 }
 
-function placeholderArtSvg() {
+function placeholderArtSvg(song) {
+  const seed = hashSeed(String(song?.id ?? song?.title ?? 'melody'));
+  const hue1 = seed % 360;
+  const hue2 = (hue1 + 45 + (seed % 40)) % 360;
   return `
     <svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
-      <rect width="100" height="100" fill="#EAE3DB"/>
-      <circle cx="50" cy="50" r="30" fill="#232323"/>
-      <circle cx="50" cy="50" r="6" fill="#F5F1EC"/>
+      <defs>
+        <linearGradient id="g${seed}" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="hsl(${hue1}, 70%, 55%)" />
+          <stop offset="100%" stop-color="hsl(${hue2}, 70%, 45%)" />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" fill="url(#g${seed})"/>
+      <path d="M62 30 L62 62 A10 10 0 1 1 56 53 L56 40 L44 44 L44 66 A10 10 0 1 1 38 57 L38 34 Z" fill="rgba(255,255,255,0.9)"/>
     </svg>
   `;
+}
+
+function hashSeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = (Math.imul(31, h) + str.charCodeAt(i)) | 0; }
+  return Math.abs(h);
 }
 
 function escapeHtml(str) {

@@ -295,7 +295,7 @@ export async function renderHomeScreen() {
     btn.addEventListener('click', () => {
       const key = btn.dataset.key;
       if (key === 'playlists') {
-        alert(`"${btn.textContent.trim()}" is coming in a future build pass.`);
+        navigate('playlists');
         return;
       }
       if (key === 'recent') {
