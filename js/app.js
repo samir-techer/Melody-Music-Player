@@ -47,6 +47,9 @@ import { renderMetadataEditorScreen } from './components/metadata-editor.js';
 import { renderLyricsScreen } from './components/lyrics-screen.js';
 import { renderEqualizerScreen } from './components/equalizer-screen.js';
 import { renderProfileScreen } from './components/profile-screen.js';
+import { renderNotificationsScreen } from './components/notifications-screen.js';
+import { renderPlaylistsScreen } from './components/playlists-screen.js';
+import { renderPlaylistDetailScreen } from './components/playlist-detail-screen.js';
 import { renderAdminScreen } from './components/admin-screen.js';
 import { renderStatsScreen } from './components/stats-screen.js';
 import { renderAchievementsScreen } from './components/achievements-screen.js';
@@ -98,6 +101,9 @@ async function boot() {
   registerRoute('lyrics', renderLyricsScreen, { requiresAuth: true });
   registerRoute('equalizer', renderEqualizerScreen, { requiresAuth: true });
   registerRoute('profile', renderProfileScreen, { requiresAuth: true });
+  registerRoute('notifications', renderNotificationsScreen, { requiresAuth: true });
+  registerRoute('playlists', renderPlaylistsScreen, { requiresAuth: true });
+  registerRoute('playlist-detail', renderPlaylistDetailScreen, { requiresAuth: true });
   registerRoute('admin', renderAdminScreen, {
     requiresAuth: true,
     // Re-verified against the live Firestore-backed premium-service state
@@ -170,7 +176,19 @@ async function boot() {
 
   // Melody Points / Achievements — fires the reward popup app-wide,
   // regardless of which screen is open when something unlocks.
-  subscribeAchievementUnlocks((payload) => showRewardPopup(payload));
+  subscribeAchievementUnlocks((payload) => {
+    showRewardPopup(payload);
+    if (currentAuthUser) {
+      import('./services/notification-service.js').then(({ addNotification }) => {
+        addNotification(currentAuthUser.uid, {
+          category: 'achievement',
+          icon: payload.icon,
+          title: `Unlocked: ${payload.label}`,
+          body: payload.mp ? `+${payload.mp} Melody Points` : '',
+        });
+      }).catch((err) => console.error('[Melody] Failed to record achievement notification.', err));
+    }
+  });
 
   // ---------- Theme / settings ----------
   try {
