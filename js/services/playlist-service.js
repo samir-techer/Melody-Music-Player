@@ -102,6 +102,15 @@ export async function removeSongFromPlaylist(playlistId, songId) {
   return updated;
 }
 
+export async function renamePlaylist(id, newName) {
+  const playlist = await getPlaylist(id);
+  if (!playlist) throw new Error(`Playlist "${id}" not found`);
+  const updated = { ...playlist, name: (newName || '').trim() || playlist.name };
+  await putPlaylist(updated);
+  notify();
+  return updated;
+}
+
 export async function deletePlaylist(id) {
   const db = await getDB();
   await new Promise((resolve, reject) => {
